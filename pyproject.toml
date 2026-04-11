@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Mars — a cloud platform for hosting AI daemons powered by Claude Code and Codex CLIs."
 requires-python = ">=3.11"
 readme = "README.md"
-dependencies = []
+dependencies = [
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+]
 
 [dependency-groups]
 dev = [
@@ -13,5 +16,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["apps/mars-control/backend/src"]
 python_files = ["test_*.py"]
 addopts = "-q"

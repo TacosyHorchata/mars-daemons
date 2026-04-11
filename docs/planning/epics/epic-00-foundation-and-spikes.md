@@ -101,7 +101,7 @@ Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 
   - *Files:* `.github/workflows/ci.yml`, `README.md`, `pyproject.toml`
   - *Done when:* empty scaffold merged to main with CI green
 
-- [ ] **Story 0.2 — `AgentConfig` schema + 2 example files** (~2h)
+- [x] **Story 0.2 — `AgentConfig` schema + 2 example files** (~2h)
   - *Goal:* Pydantic `AgentConfig` with all v1 fields (`name`, `description`, `runtime`, `system_prompt_path`, `mcps`, `env`, `tools`, `workdir`) + two valid example agent.yaml files.
   - *Files:* `apps/mars-control/backend/src/schema/agent.py`, `examples/pr-reviewer-agent.yaml`, `examples/orion-daemon.yaml`
   - *Done when:* `AgentConfig.parse_file()` succeeds on both examples with unit test

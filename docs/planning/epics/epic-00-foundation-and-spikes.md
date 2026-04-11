@@ -106,7 +106,7 @@ Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 
   - *Files:* `apps/mars-control/backend/src/schema/agent.py`, `examples/pr-reviewer-agent.yaml`, `examples/orion-daemon.yaml`
   - *Done when:* `AgentConfig.parse_file()` succeeds on both examples with unit test
 
-- [ ] **Story 0.3 — `mars init` CLI command** (~1h)
+- [x] **Story 0.3 — `mars init` CLI command** (~1h)
   - *Goal:* CLI subcommand that scaffolds a starter agent.yaml in the current directory.
   - *Files:* `packages/mars-cli/src/mars/__main__.py`, `packages/mars-cli/src/mars/init.py`
   - *Done when:* `mars init` in an empty dir creates a valid agent.yaml parseable by `AgentConfig`

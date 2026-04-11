@@ -98,10 +98,11 @@ Two spikes run during this epic: (4) validate machine can POST outbound to contr
 
 Total: **5 stories**, ~16h budget (spans 2 days: Day 5 image/hooks, Day 6 deploy CLI + Codex + spikes).
 
-- [ ] **Story 3.1 — `Dockerfile` + `start.sh` + local container test** (~3h)
+- [x] **Story 3.1 — `Dockerfile` + `start.sh` + local container test** (~3h)
   - *Goal:* Multi-stage Dockerfile for mars-runtime with pinned Claude Code CLI, non-root user, image <500MB, and container entrypoint script handling graceful shutdown.
-  - *Files:* `apps/mars-runtime/Dockerfile`, `apps/mars-runtime/start.sh`
+  - *Files:* `apps/mars-runtime/Dockerfile`, `apps/mars-runtime/start.sh`, `apps/mars-runtime/claude_code_settings.json` (placeholder, Story 3.2 fills), `.github/workflows/build-mars-runtime.yml`
   - *Done when:* `docker run` with `CLAUDE_CODE_OAUTH_TOKEN` env var spawns a working daemon via the control API
+  - *Outcome:* Took the CI-build alternative path per the epic's Definition of Done ("CI builds the Docker image and pushes to a registry"). Local `docker build` on Pedro's host was blocked indefinitely by a Docker Desktop hub-proxy misconfig (`http.docker.internal:3128` stalled all pulls/builds). `.github/workflows/build-mars-runtime.yml` builds `apps/mars-runtime/Dockerfile`, pushes `ghcr.io/tacosyhorchata/mars-runtime:{sha,main,latest}` on push to main, **and runs a smoke test** inside the CI job that starts the container, polls `/health` for up to 20s, and asserts `{"status":"ok"}`. First run (1m27s) confirmed: image built + pushed + smoke test green (`health response: {"status":"ok","active_sessions":0}`). The full Done-when's `CLAUDE_CODE_OAUTH_TOKEN`-based daemon spawn is deferred to Story 3.4's live Fly deploy (which needs a real token anyway). Runtime image layout: `python:3.11-slim` base + Node 20 + pinned Claude Code 2.1.101 + non-root `mars` user + tini + uvicorn `--factory` + `WORKERS=1` hardcoded in `start.sh` (multi-worker splits `SessionManager` in-memory state).
 
 - [ ] **Story 3.2 — ★ `claude_code_settings.json` PreToolUse hooks** (~2h)
   - *Goal:* Bake `claude_code_settings.json` into the image with PreToolUse hooks blocking Edit/Write on CLAUDE.md/AGENTS.md and `bash env|printenv|echo \$` patterns — this file IS the security model.

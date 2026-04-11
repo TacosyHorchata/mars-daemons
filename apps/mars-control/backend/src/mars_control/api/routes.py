@@ -18,9 +18,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 
 from mars_control.events.ingest import create_ingest_router
+from mars_control.sse.stream import SSEEventSink, sse_event_generator
 from mars_control.store.events import EventStore
 
 __all__ = ["create_control_app"]
@@ -30,6 +32,7 @@ def create_control_app(
     *,
     store: EventStore | None = None,
     event_secret: str | None = None,
+    sink: SSEEventSink | None = None,
 ) -> FastAPI:
     """Build a FastAPI app for the Mars control plane.
 
@@ -42,6 +45,10 @@ def create_control_app(
             An empty string here causes ingest requests to fail with
             500 — intentional, misconfiguration should not silently
             accept forged events.
+        sink: Optional :class:`SSEEventSink` instance. Tests inject a
+            fresh sink per app so subscribers do not leak between
+            tests. Production leaves it ``None`` and the factory
+            creates one.
     """
 
     owned_store = store is None
@@ -53,6 +60,7 @@ def create_control_app(
         if event_secret is not None
         else os.environ.get("MARS_EVENT_SECRET", "")
     )
+    effective_sink = sink or SSEEventSink()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -69,11 +77,35 @@ def create_control_app(
         lifespan=lifespan,
     )
     app.state.event_store = effective_store
+    app.state.sse_sink = effective_sink
 
-    app.include_router(create_ingest_router(effective_store, effective_secret))
+    app.include_router(
+        create_ingest_router(effective_store, effective_secret, effective_sink)
+    )
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/sessions/{session_id}/stream")
+    async def session_stream(session_id: str, request: Request) -> StreamingResponse:
+        """Browser SSE endpoint. Lifts Camtom's streaming response
+        shape: ``text/event-stream`` with ``no-cache``, streamed via
+        the event generator in :mod:`mars_control.sse.stream`."""
+        if not session_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="session_id required",
+            )
+        headers = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable proxy buffering
+        }
+        return StreamingResponse(
+            sse_event_generator(session_id, effective_sink, request),
+            media_type="text/event-stream",
+            headers=headers,
+        )
 
     return app

@@ -32,6 +32,7 @@ from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
 from events.types import MARS_EVENT_ADAPTER
+from mars_control.sse.stream import SSEEventSink
 from mars_control.store.events import EventStore
 
 __all__ = ["MAX_INGEST_BATCH_SIZE", "EventBatch", "create_ingest_router"]
@@ -78,8 +79,18 @@ def _check_secret(header: str | None, expected: str) -> None:
         )
 
 
-def create_ingest_router(store: EventStore, expected_secret: str) -> APIRouter:
-    """Build an ingest router wired to a specific store + secret."""
+def create_ingest_router(
+    store: EventStore,
+    expected_secret: str,
+    sink: SSEEventSink | None = None,
+) -> APIRouter:
+    """Build an ingest router wired to a specific store + secret.
+
+    If ``sink`` is provided, every validated event is broadcast to
+    its subscribers *after* durable persistence. This is the in-process
+    fan-out path that feeds browser SSE subscribers — see
+    :mod:`mars_control.sse.stream`.
+    """
 
     router = APIRouter(prefix="/internal", tags=["ingest"])
 
@@ -118,6 +129,13 @@ def create_ingest_router(store: EventStore, expected_secret: str) -> APIRouter:
                 persisted,
                 received - persisted,
             )
+        # Fan out ALL validated events (durable + ephemeral) to any
+        # browser SSE subscribers. Ephemerals do not survive restart
+        # but they DO reach a connected browser — that is the whole
+        # point of the chunk stream.
+        if sink is not None:
+            for ev in validated:
+                sink.emit(ev)
         return {"received": received, "persisted": persisted}
 
     return router

@@ -47,7 +47,7 @@ from typing import Any
 
 import click
 
-from mars_control.fly.client import FlyApiError, FlyClient
+from mars.fly.client import FlyApiError, FlyClient
 from schema.agent import AgentConfig
 
 __all__ = ["deploy_command"]

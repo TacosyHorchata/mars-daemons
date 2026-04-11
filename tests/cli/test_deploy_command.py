@@ -28,7 +28,7 @@ from mars.deploy import (
     _build_machine_config,
     deploy_command,
 )
-from mars_control.fly.client import FlyApiError
+from mars.fly.client import FlyApiError
 
 
 # ---------------------------------------------------------------------------

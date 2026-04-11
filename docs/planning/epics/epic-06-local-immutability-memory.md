@@ -118,10 +118,11 @@ The plan agent's key insight on immutability: **the filesystem read-only mount i
 
 Total: **5 stories**, ~8h budget. Three related subsystems (local mode + immutability + memory) shipped in one day.
 
-- [ ] **Story 6.1 — `runtime_local.py` local mode runner** (~2h)
+- [x] **Story 6.1 — `runtime_local.py` local mode runner** (~2h)
   - *Goal:* `mars run --local ./agent.yaml` spawns a local `claude` subprocess using shared `claude_code.py` + `claude_code_stream.py` with terminal I/O, zero control plane dependencies.
-  - *Files:* `packages/mars-cli/src/mars/runtime_local.py`, `packages/mars-cli/src/mars/__main__.py`
+  - *Files:* `packages/mars-cli/src/mars/runtime_local.py`, `packages/mars-cli/src/mars/__main__.py`, `tests/cli/test_runtime_local.py`
   - *Done when:* same agent.yaml works with `mars run --local` on Pedro's laptop
+  - *Outcome:* `run_local_loop` reuses `spawn_claude_code` (stdin_stream_json=True) + `parse_stream` so local mode and remote mode share every byte of the runtime core. REPL-style UX: multi-line prompt ending on a blank line, Ctrl+D closes stdin so claude exits, Ctrl+C aborts cleanly with exit code 130. Events pretty-printed to stderr (`→ session started`, `← text`, `→ tool_call`, etc.) so the user can pipe stdout to a file if they want raw JSONL. `format_event_for_terminal` covers all 6 canonical Mars event types with a generic fallback; `encode_user_event_line` wraps user text as a stream-json `user` event. `read_multiline_prompt` handles EOF, blank-first-line, and multi-line collection. `mars run --local <agent.yaml>` wired into `packages/mars-cli/src/mars/__main__.py`. 15 unit tests cover format helpers, stdin parser, canonical stream-json round-trip through `run_local_loop` (including `CriticalParseError` propagation → exit code 2). Full suite: 292 passed, 1 skipped.
 
 - [ ] **Story 6.2 — `memory/capture.py` session + tool log collection** (~2h)
   - *Goal:* Per-session collector writing `session_history.jsonl`, `tool_calls.jsonl`, `claude_md_proposals.jsonl` into `/workspace/<session-id>/memory/` from the event stream; proposals captured but NEVER applied.

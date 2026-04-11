@@ -6,6 +6,7 @@ import click
 
 from mars.deploy import deploy_command
 from mars.init import init_command
+from mars.runtime_local import runtime_local_command
 from mars.ssh import ssh_command
 
 
@@ -18,6 +19,7 @@ def cli() -> None:
 cli.add_command(init_command)
 cli.add_command(deploy_command)
 cli.add_command(ssh_command)
+cli.add_command(runtime_local_command)
 
 
 if __name__ == "__main__":

@@ -177,8 +177,13 @@ class EventStore:
         """Return events for a session ordered by insertion id.
 
         ``since_id`` lets callers resume after a reconnect without
-        replaying the whole log. Story 2.3's SSE endpoint uses this
-        as the ``Last-Event-ID`` cursor.
+        replaying the whole log. The v1 SSE endpoint does NOT currently
+        honor the browser's ``Last-Event-ID`` header (see
+        ``mars_control.sse.stream.format_sse_event`` — emission of the
+        ``id:`` frame is dormant because the runtime supervisor does
+        not yet assign ``sequence`` numbers). A dedicated history /
+        replay endpoint that does use this cursor will land with Epic
+        4 so browsers can catch up after a reconnect.
         """
         async with self._db_lock:
             rows = await asyncio.to_thread(

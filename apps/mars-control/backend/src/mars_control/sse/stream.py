@@ -72,11 +72,21 @@ SSE_HEARTBEAT_FRAME: str = ":ping\n\n"
 def format_sse_event(event: dict[str, Any]) -> str:
     """Render one event as an SSE-formatted frame.
 
-    Mirrors Camtom's ``_format_sse_event``: the ``sequence`` field (if
-    present) becomes the ``id:`` line so browsers can resume via
-    ``Last-Event-ID``, the ``type`` field becomes the ``event:`` line
-    so listeners can dispatch by type, and the full JSON payload is
-    chunked onto ``data:`` lines so multi-line JSON stays valid SSE.
+    Mirrors Camtom's ``_format_sse_event``: the ``type`` field becomes
+    the ``event:`` line so listeners can dispatch by type, and the full
+    JSON payload is chunked onto ``data:`` lines so multi-line JSON
+    stays valid SSE.
+
+    **v1 resume status.** An ``id:`` line is emitted only when the
+    event carries a non-null ``sequence`` field. In practice, v1's
+    runtime supervisor does NOT assign sequence numbers yet, so this
+    branch is dormant and the SSE endpoint ignores the browser's
+    ``Last-Event-ID`` header. Browsers that reconnect get a fresh
+    stream from "now" onward, and the durable history can be replayed
+    via a separate endpoint (TBD, Epic 4). Keeping the ``id:``
+    emission dormant (rather than wiring it to the SQLite row id) is
+    deliberate — mixing two cursor spaces (``sequence`` vs row ``id``)
+    would silently skip or duplicate events on resume.
     """
     event_type = str(event.get("type", "message"))
     sequence = event.get("sequence")

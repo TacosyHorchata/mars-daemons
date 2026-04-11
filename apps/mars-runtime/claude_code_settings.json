@@ -1,0 +1,6 @@
+{
+  "permissionMode": "acceptEdits",
+  "hooks": {
+    "PreToolUse": []
+  }
+}

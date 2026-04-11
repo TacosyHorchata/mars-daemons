@@ -107,9 +107,14 @@ def _make_canonical_session() -> list:
 
 def _build_app_and_forwarder(
     store: EventStore, sink: SSEEventSink
-) -> tuple[object, HttpEventForwarder]:
+) -> tuple[object, HttpEventForwarder, httpx.AsyncClient]:
     """Build the control-plane app and wire the forwarder to it via
-    :class:`httpx.ASGITransport`. Returns ``(app, forwarder)``."""
+    :class:`httpx.ASGITransport`. Returns ``(app, forwarder, http)``.
+
+    The caller owns the ``httpx.AsyncClient`` and must close it after
+    calling ``fwd.stop()`` — ``HttpEventForwarder.stop()`` only closes
+    clients it *created*, not injected ones.
+    """
     app = create_control_app(store=store, event_secret=SECRET, sink=sink)
     transport = httpx.ASGITransport(app=app)
     http = httpx.AsyncClient(transport=transport, base_url="http://mars-control")
@@ -120,7 +125,7 @@ def _build_app_and_forwarder(
         flush_interval_s=0.05,
         max_batch=50,
     )
-    return app, forwarder
+    return app, forwarder, http
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +145,7 @@ def test_end_to_end_forwarder_to_store_and_sink():
         # Browser equivalent — a subscribed queue reading from the sink
         subscriber = sink.subscribe(SESSION_ID)
 
-        app, fwd = _build_app_and_forwarder(store, sink)
+        app, fwd, http = _build_app_and_forwarder(store, sink)
         try:
             await fwd.start()
             for ev in _make_canonical_session():
@@ -151,6 +156,7 @@ def test_end_to_end_forwarder_to_store_and_sink():
             await fwd.flush()
         finally:
             await fwd.stop()
+            await http.aclose()
 
         # Drain the sink (browser view — every event durable + ephemeral)
         sink_types: list[str] = []
@@ -190,7 +196,7 @@ def test_end_to_end_persists_expected_payload_fields():
         store = EventStore(":memory:")
         store.init()
         sink = SSEEventSink()
-        app, fwd = _build_app_and_forwarder(store, sink)
+        app, fwd, http = _build_app_and_forwarder(store, sink)
         try:
             await fwd.start()
             for ev in _make_canonical_session():
@@ -199,6 +205,7 @@ def test_end_to_end_persists_expected_payload_fields():
             await asyncio.sleep(0.05)
         finally:
             await fwd.stop()
+            await http.aclose()
         rows = await store.get_session_events(SESSION_ID)
         store.close()
         return rows
@@ -243,7 +250,7 @@ def test_control_plane_restart_preserves_durable_events(tmp_path: Path):
         store = EventStore(db_path)
         store.init()
         sink = SSEEventSink()
-        app, fwd = _build_app_and_forwarder(store, sink)
+        app, fwd, http = _build_app_and_forwarder(store, sink)
         try:
             await fwd.start()
             for ev in _make_canonical_session():
@@ -252,6 +259,7 @@ def test_control_plane_restart_preserves_durable_events(tmp_path: Path):
             await asyncio.sleep(0.05)
         finally:
             await fwd.stop()
+            await http.aclose()
         count = await store.count()
         store.close()  # "kill" the control plane
         return count
@@ -292,7 +300,7 @@ def test_control_plane_restart_supports_since_id_resume(tmp_path: Path):
         # Phase 1: write the first half
         store = EventStore(db_path)
         store.init()
-        app, fwd = _build_app_and_forwarder(store, SSEEventSink())
+        app, fwd, http = _build_app_and_forwarder(store, SSEEventSink())
         try:
             await fwd.start()
             await fwd.emit(_make_canonical_session()[0])  # session_started
@@ -301,6 +309,7 @@ def test_control_plane_restart_supports_since_id_resume(tmp_path: Path):
             await asyncio.sleep(0.05)
         finally:
             await fwd.stop()
+            await http.aclose()
         mid = await store.get_session_events(SESSION_ID)
         cursor = mid[-1]["id"]
         store.close()
@@ -308,7 +317,7 @@ def test_control_plane_restart_supports_since_id_resume(tmp_path: Path):
         # Phase 2: "restart" + write the second half
         store = EventStore(db_path)
         store.init()
-        app, fwd = _build_app_and_forwarder(store, SSEEventSink())
+        app, fwd, http = _build_app_and_forwarder(store, SSEEventSink())
         try:
             await fwd.start()
             await fwd.emit(_make_canonical_session()[2])  # tool_result
@@ -318,6 +327,7 @@ def test_control_plane_restart_supports_since_id_resume(tmp_path: Path):
             await asyncio.sleep(0.05)
         finally:
             await fwd.stop()
+            await http.aclose()
 
         try:
             new_rows = await store.get_session_events(

@@ -109,7 +109,9 @@ def test_kill_unknown_session_id_returns_false():
 
 def test_session_ids_are_unique_across_spawns():
     async def _run():
-        mgr = SessionManager(spawn_fn=_sleep_spawn)
+        # Story 5.2 default cap is 3; bump it here to test uniqueness
+        # across more spawns.
+        mgr = SessionManager(spawn_fn=_sleep_spawn, max_sessions=20)
         ids = set()
         handles = []
         for i in range(5):
@@ -134,7 +136,9 @@ def test_spawn_and_kill_10_sessions_leaves_no_zombies():
     is attributable."""
 
     async def _run():
-        mgr = SessionManager(spawn_fn=_sleep_spawn)
+        # Override Story 5.2's default 3-session cap for this zombie
+        # stress test.
+        mgr = SessionManager(spawn_fn=_sleep_spawn, max_sessions=20)
         handles = []
         for i in range(10):
             h = await mgr.spawn(_make_config(f"load-{i}"))

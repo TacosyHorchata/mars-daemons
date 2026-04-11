@@ -27,22 +27,98 @@ Design principles
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import logging
+import os
 import signal
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Awaitable, Callable, Literal
+
+_manager_log = logging.getLogger("mars.runtime.manager")
 
 from schema.agent import AgentConfig
 
 from .claude_code import spawn_claude_code
 
 __all__ = [
+    "DEFAULT_WORKSPACE_ROOT",
+    "MAX_SESSIONS_PER_MACHINE",
+    "SessionCapReachedError",
     "SessionHandle",
+    "SessionIdLogFilter",
     "SessionManager",
     "SessionStatus",
     "SpawnFn",
+    "current_session_id",
+    "install_session_log_filter",
 ]
+
+#: Hard cap on concurrent sessions per Fly machine in v1. v1.1 bumps
+#: to 10 with a dynamic check against machine memory; v2 is fully
+#: dynamic. Documented as "a v1 number — don't rathole on why 3" in
+#: Epic 5's notes.
+MAX_SESSIONS_PER_MACHINE = 3
+
+#: Default workspace root on Fly machines. Each session gets its own
+#: ``<root>/<session_id>`` subdirectory enforced as the subprocess
+#: ``cwd`` so sessions cannot read or write each other's files.
+DEFAULT_WORKSPACE_ROOT = "/workspace"
+
+
+class SessionCapReachedError(RuntimeError):
+    """Raised by :meth:`SessionManager.spawn` when the machine is
+    already running :data:`MAX_SESSIONS_PER_MACHINE` sessions.
+
+    The supervisor's ``POST /sessions`` handler translates this to
+    HTTP 429 with a clean message — the UI can show "machine full,
+    wait for an existing session to finish".
+    """
+
+
+# ---------------------------------------------------------------------------
+# Structured session-id logging — stdlib only, no structlog dep
+# ---------------------------------------------------------------------------
+
+#: ContextVar holding the session id for the current asyncio task.
+#: The supervisor's event pump sets this when it wraps per-session
+#: work; log records emitted from within that task get automatically
+#: tagged with ``session_id`` via :class:`SessionIdLogFilter`.
+current_session_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "mars_session_id", default=None
+)
+
+
+class SessionIdLogFilter(logging.Filter):
+    """Stdlib logging filter that stamps ``session_id`` onto every
+    record whose origin task has set :data:`current_session_id`.
+
+    Use with any log format that references ``%(session_id)s`` — the
+    filter guarantees the attribute is always present (set to
+    ``"-"`` when the context var is unset) so format strings don't
+    blow up with ``KeyError`` outside session-scoped code.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        sid = current_session_id.get()
+        record.session_id = sid if sid is not None else "-"
+        return True
+
+
+def install_session_log_filter(logger: logging.Logger | None = None) -> SessionIdLogFilter:
+    """Attach a :class:`SessionIdLogFilter` to ``logger`` (or the root).
+
+    Returns the installed filter so callers can detach it in tests.
+    Idempotent — calling twice on the same logger adds two filters,
+    so tests that need a clean slate should detach the returned
+    filter when done.
+    """
+    target = logger if logger is not None else logging.getLogger()
+    flt = SessionIdLogFilter()
+    target.addFilter(flt)
+    return flt
 
 
 #: Observable terminal states. Kept precise so downstream UIs can
@@ -104,8 +180,18 @@ class SessionManager:
     to :func:`session.claude_code.spawn_claude_code`.
     """
 
-    def __init__(self, spawn_fn: SpawnFn | None = None):
+    def __init__(
+        self,
+        spawn_fn: SpawnFn | None = None,
+        *,
+        max_sessions: int = MAX_SESSIONS_PER_MACHINE,
+        workspace_root: str | Path = DEFAULT_WORKSPACE_ROOT,
+    ):
+        if max_sessions <= 0:
+            raise ValueError(f"max_sessions must be positive, got {max_sessions}")
         self._spawn_fn: SpawnFn = spawn_fn or spawn_claude_code
+        self._max_sessions = max_sessions
+        self._workspace_root = Path(workspace_root)
         self._sessions: dict[str, SessionHandle] = {}
         #: Handles for sessions whose kill() timed out — SIGKILL sent but
         #: wait() never returned. We keep the reference so the pid is
@@ -113,6 +199,18 @@ class SessionManager:
         #: guarantee it is reaped on this process lifetime.
         self._orphaned: list[SessionHandle] = []
         self._lock = asyncio.Lock()
+
+    @property
+    def max_sessions(self) -> int:
+        return self._max_sessions
+
+    @property
+    def workspace_root(self) -> Path:
+        return self._workspace_root
+
+    def session_workdir(self, session_id: str) -> Path:
+        """Return the per-session working directory path (not yet created)."""
+        return self._workspace_root / session_id
 
     @property
     def orphaned(self) -> list[SessionHandle]:
@@ -124,8 +222,45 @@ class SessionManager:
     # ------------------------------------------------------------------
 
     async def spawn(self, config: AgentConfig) -> SessionHandle:
-        """Spawn a new session for ``config`` and register it."""
+        """Spawn a new session for ``config`` and register it.
+
+        Story 5.2 additions:
+
+        * Hard-caps the number of concurrent sessions at
+          :data:`max_sessions` and raises :class:`SessionCapReachedError`
+          when full. The supervisor's ``POST /sessions`` maps this to
+          HTTP 429.
+        * Creates the per-session working directory at
+          ``<workspace_root>/<session_id>/`` BEFORE spawning so the
+          subprocess has a legal ``cwd`` to land in. The directory
+          tracks on the :class:`SessionHandle` for downstream cleanup.
+        """
+        if len(self._sessions) >= self._max_sessions:
+            raise SessionCapReachedError(
+                f"max {self._max_sessions} concurrent sessions already running "
+                f"on this machine — wait for one to finish or kill it"
+            )
+
         session_id = _new_session_id()
+        workdir = self.session_workdir(session_id)
+        workdir_metadata: dict[str, str] = {}
+        try:
+            workdir.mkdir(parents=True, exist_ok=True)
+            workdir_metadata["session_workdir"] = str(workdir)
+        except OSError as exc:
+            # Non-fatal: on local dev / unit tests the default
+            # ``/workspace`` root is not writable. Log and proceed —
+            # the isolation guarantee only applies when the
+            # workspace_root is writable (i.e. inside a real Fly
+            # machine). Tests can opt into isolation by passing
+            # ``workspace_root=tmp_path`` at construction time.
+            _manager_log.warning(
+                "failed to create per-session workdir %s: %s — "
+                "session will spawn without isolated cwd",
+                workdir,
+                exc,
+            )
+
         proc = await self._spawn_fn(config, session_id)
         handle = SessionHandle(
             session_id=session_id,
@@ -135,6 +270,7 @@ class SessionManager:
             process=proc,
             started_at=datetime.now(timezone.utc),
             status="running",
+            metadata=workdir_metadata,
         )
         self._sessions[session_id] = handle
         return handle

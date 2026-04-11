@@ -517,6 +517,24 @@ async def _eof_stub_spawn(config: AgentConfig, session_id: str):
     )
 
 
+def test_post_sessions_returns_429_when_cap_reached(tmp_path):
+    """Story 5.2: POST /sessions respects the SessionManager cap and
+    returns HTTP 429 on the 4th spawn."""
+    mgr = SessionManager(
+        spawn_fn=_stub_spawn, max_sessions=2, workspace_root=tmp_path
+    )
+    app = create_app(manager=mgr)
+
+    with TestClient(app) as c:
+        r1 = c.post("/sessions", json=_agent_payload("a"))
+        r2 = c.post("/sessions", json=_agent_payload("b"))
+        assert r1.status_code == 201
+        assert r2.status_code == 201
+        r3 = c.post("/sessions", json=_agent_payload("c"))
+        assert r3.status_code == 429
+        assert "max 2 concurrent sessions" in r3.json()["detail"]
+
+
 def test_pump_triggers_kill_when_stdout_hits_eof():
     """When the subprocess finishes naturally, the pump's finally
     block should schedule mgr.kill, transitioning the session out of

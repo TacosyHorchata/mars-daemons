@@ -50,7 +50,12 @@ from schema.agent import AgentConfig
 from session.claude_code import spawn_claude_code
 from session.claude_code_stream import CriticalParseError, parse_stream
 from session.codex import spawn_codex
-from session.manager import SessionHandle, SessionManager, SpawnFn
+from session.manager import (
+    SessionCapReachedError,
+    SessionHandle,
+    SessionManager,
+    SpawnFn,
+)
 
 # Hard cap on request body size. An agent.yaml is under a few hundred
 # bytes in practice; anything larger than 64 KB is either malicious or
@@ -359,6 +364,11 @@ def create_app(
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
         try:
             handle = await mgr.spawn(config)
+        except SessionCapReachedError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=str(exc),
+            ) from exc
         except FileNotFoundError as exc:
             raise HTTPException(
                 status_code=500,

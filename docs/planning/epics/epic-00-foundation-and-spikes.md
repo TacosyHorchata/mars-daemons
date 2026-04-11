@@ -117,10 +117,11 @@ Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 
   - *Done when:* headless `claude -p` runs in a container OR pivot decision committed
   - *Outcome:* host stream-json headless validated (clean-env `claude -p` produces well-formed JSONL with `system.init → assistant → result` events). Container + setup-token path scripted in `spikes/01-claude-code-oauth.sh` but pending Pedro's interactive browser OAuth. Architecture commitment is auth-mode-agnostic — safe to proceed. See `docs/decisions/001-oauth-status.md`.
 
-- [ ] **Story 0.5 — ★ Spike 2: stream-json schema capture** (~1h)
+- [x] **Story 0.5 — ★ Spike 2: stream-json schema capture** (~1h)
   - *Goal:* Capture canonical Claude Code stream-json output as a test fixture for Epic 1's parser.
   - *Files:* `spikes/02-stream-json-capture.sh`, `tests/contract/fixtures/stream_json_sample.jsonl`
   - *Done when:* fixture contains one complete session with system_init → assistant → tool_call → tool_result → result events
+  - *Outcome:* 6-line fixture captured from pinned Claude Code 2.1.101: `system.init → assistant(tool_use) → rate_limit_event → user(tool_result) → assistant(text) → result.success`. Spike script drops user-global hook noise + strips cmux `[rerun: bN]` artifacts so the fixture matches what a clean Mars Fly container will emit.
 
 - [ ] **Story 0.6 — Spike 3: Permission round-trip** (~2h)
   - *Goal:* Determine if Claude Code permission prompts can be intercepted + responded to programmatically, or confirm `--permission-mode acceptEdits` fallback.

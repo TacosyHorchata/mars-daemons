@@ -32,10 +32,14 @@ __all__ = [
 ]
 
 
-def build_claude_command(config: AgentConfig) -> list[str]:
+def build_claude_command(
+    config: AgentConfig,
+    *,
+    with_stdin_stream_json: bool = False,
+) -> list[str]:
     """Build the ``claude -p`` command line from an :class:`AgentConfig`.
 
-    Defaults chosen for Mars v1.4 scope:
+    Always-on flags:
 
     * ``--output-format stream-json`` — the sole parseable channel.
     * ``--verbose`` — without it ``stream-json`` drops the ``system.init``
@@ -45,12 +49,13 @@ def build_claude_command(config: AgentConfig) -> list[str]:
     * ``--allowed-tools`` — driven by ``config.tools``; empty list means
       "no explicit allowlist" (runtime defaults apply).
 
-    Deliberately NOT passed in v1.4:
-
-    * ``--input-format stream-json`` — Story 1.5 wires the supervisor's
-      ``POST /sessions/{id}/input`` endpoint and passes this flag
-      together with an open stdin pipe. Passing it in 1.4 with a never-
-      written stdin would risk the child blocking on stdin read.
+    ``with_stdin_stream_json`` (default ``False``) toggles
+    ``--input-format stream-json``. Only flip it on when the caller
+    guarantees an open stdin pipe AND a writer that will either send
+    events or close the pipe; otherwise ``claude`` may block on a stdin
+    read. The Mars supervisor spawns with ``True`` (Story 1.5), while
+    contract + subprocess-lifecycle tests leave it ``False`` and use
+    ``stdin=DEVNULL`` so the child never reads.
     """
     cmd: list[str] = [
         "claude",
@@ -61,6 +66,8 @@ def build_claude_command(config: AgentConfig) -> list[str]:
         "--permission-mode",
         "acceptEdits",
     ]
+    if with_stdin_stream_json:
+        cmd.extend(["--input-format", "stream-json"])
     if config.tools:
         cmd.extend(["--allowed-tools", " ".join(config.tools)])
     return cmd
@@ -127,17 +134,22 @@ async def spawn_claude_code(
     session_id: str,
     *,
     extra_env: Mapping[str, str] | None = None,
+    stdin_stream_json: bool = False,
 ) -> asyncio.subprocess.Process:
     """Spawn a ``claude -p`` subprocess for the given session.
 
-    The returned process has ``stdout`` and ``stderr`` attached as
-    pipes. The caller (SessionManager) keeps a reference and passes
+    The returned process always has ``stdout`` and ``stderr`` attached
+    as pipes. The caller (SessionManager) keeps a reference and passes
     ``process.stdout`` to :func:`session.claude_code_stream.parse_stream`.
 
-    ``stdin`` is pointed at ``/dev/null`` in v1.4 so the child sees EOF
-    immediately if it ever tries to read. Story 1.5 switches this to a
-    pipe and pairs it with ``--input-format stream-json`` when the
-    supervisor's ``POST /sessions/{id}/input`` endpoint goes live.
+    ``stdin`` handling depends on ``stdin_stream_json``:
+
+    * ``False`` (default) — ``stdin=DEVNULL``. Safe for any caller that
+      does not plan to inject user events. Used by the session-lifecycle
+      test suite so a stub subprocess never blocks on stdin reads.
+    * ``True`` — ``stdin=PIPE`` plus ``--input-format stream-json`` on
+      the command line. Used by :mod:`supervisor` (Story 1.5) to enable
+      ``POST /sessions/{id}/input`` injection.
 
     ``session_id`` is currently unused by the command itself — Claude
     Code maintains its own session id internally — but the argument is
@@ -146,11 +158,14 @@ async def spawn_claude_code(
     Epic 6).
     """
     del session_id  # reserved for future use (see docstring)
-    cmd = build_claude_command(config)
+    cmd = build_claude_command(config, with_stdin_stream_json=stdin_stream_json)
     env = build_claude_env(config, extra=extra_env)
+    stdin_arg = (
+        asyncio.subprocess.PIPE if stdin_stream_json else asyncio.subprocess.DEVNULL
+    )
     return await asyncio.create_subprocess_exec(
         *cmd,
-        stdin=asyncio.subprocess.DEVNULL,
+        stdin=stdin_arg,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,

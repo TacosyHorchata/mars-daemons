@@ -1,0 +1,107 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual envs
+venv/
+.venv/
+env/
+ENV/
+.python-version
+
+# uv
+.uv/
+uv.lock
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js
+.next/
+next-env.d.ts
+
+# Environment + secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+.secrets/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Fly
+.fly/
+fly.toml.backup
+
+# Docker
+.dockerignore.backup
+
+# SQLite (local dev DBs)
+*.db
+*.sqlite
+*.sqlite3
+!docs/**/*.db
+
+# Session artifacts (dev-mode local sessions)
+/workspace/
+.claude/sessions/
+
+# Spike outputs (keep the scripts, ignore captured artifacts)
+spikes/**/*.jsonl.bak
+spikes/**/*.log
+
+# Claude Code local state (if any devs run claude inside the repo)
+.claude/

@@ -20,10 +20,50 @@ Mars is a cloud platform for hosting AI agents ("daemons") powered by Claude Cod
 
 ## Status
 
-**v1 in progress.** Shipping in ~13 days per the [v1 plan](docs/planning/v1-plan.md).
+**v1 code-complete, pre-deploy.** 40/47 stories landed, ~513 tests
+passing across runtime, control plane, and CLI. The last 7 stories
+are all gated on a live Fly machine (dev dogfood + OAuth flow half
++ Maat setup call + mobile real-phone E2E) and are scheduled as the
+first items in [v1.1](docs/v1.1-backlog.md).
+
 Design Partner #1: Maat (CEO of Orion, Mérida/Celaya).
 
-See [`docs/planning/epics/index.md`](docs/planning/epics/index.md) for the epic breakdown.
+See [`docs/planning/epics/index.md`](docs/planning/epics/index.md) for
+the epic breakdown and [`docs/v1.1-backlog.md`](docs/v1.1-backlog.md)
+for everything explicitly deferred out of v1 scope.
+
+### What works today
+
+- **Runtime supervisor** (`apps/mars-runtime/`) — FastAPI app that
+  spawns `claude` / `codex` subprocesses, parses stream-json output
+  into typed `MarsEvent`s, manages session lifecycle with a hard
+  cap + per-session cwd, survives supervisor restart via
+  `PersistedSessionHandle` atomic writes, captures memory to S3
+- **Control plane** (`apps/mars-control/backend/`) — FastAPI app
+  with magic-link auth (Resend + JWT cookie, rate-limited), SSE
+  fanout for browser chat, event ingest with X-Event-Secret, session
+  proxy to the runtime, template discovery (`GET /templates`), admin
+  prompt edit flow (`PATCH /agents/{name}/prompt`)
+- **Frontend** (`apps/mars-control/frontend/`) — Next.js 16 + React
+  19 + Tailwind 4, auth-guarded dashboard with sessions + templates
+  tabs, chat view with 4 bubble components (assistant text, tool
+  call, tool result, permission request) backed by native
+  EventSource, onboarding wizard steps 1-3 in Spanish
+- **CLI** (`packages/mars-cli/`) — `mars init`, `mars deploy`,
+  `mars ssh`, `mars run --local`, `mars edit-prompt`, `mars memory`
+- **Security hooks** — PreToolUse deny on CLAUDE.md/AGENTS.md edit
+  and `env`/`printenv`/`echo $`/`set` at command position
+- **Local dev harness** — `mars_control.local_server` +
+  `uvicorn --factory supervisor:create_app` run the full stack on
+  `localhost:{3000,8000,8090}` with hardcoded dev secrets and an
+  `InMemoryEmailSender` outbox inspectable at `/dev/outbox`
+
+### What's deferred to v1.1
+
+See [`docs/v1.1-backlog.md`](docs/v1.1-backlog.md). The short list:
+Anthropic OAuth flow, live Fly deploy + cold-boot timing, dev-track
+dogfood, Maat setup call, mobile real-phone E2E, persisted session
+registry, SSE reconnect with Last-Event-ID, permission round-trip UI.
 
 ## Repo structure (v1 target)
 

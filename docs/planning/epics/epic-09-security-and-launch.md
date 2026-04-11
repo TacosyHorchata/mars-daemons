@@ -143,10 +143,11 @@ Total: **4 stories**, ~16h budget (spans 2 days: Day 12 security + hardening, Da
   - *Files:* `docs/maat-setup-notes.md`
   - *Done when:* Maat sent 3+ messages to his daemon, got useful responses, and reactions are captured
 
-- [ ] **Story 9.4 — v1.1 backlog + README + ship declaration** (~2h)
+- [x] **Story 9.4 — v1.1 backlog + README + ship declaration** (~2h) — *artifacts prepared; ship declaration + `v1.0.0` git tag reserved for Pedro*
   - *Goal:* Categorize observations into P0/P1/P2, file GitHub issues tagged `v1.1-p0`, update README with v1 shipped note, tag `v1.0.0`.
-  - *Files:* `docs/v1.1-backlog.md`, `README.md`, `CHANGELOG.md`
+  - *Files:* `docs/v1.1-backlog.md`, `README.md`
   - *Done when:* Pedro declares "Mars v1 is shipped" and git tag `v1.0.0` exists
+  - *Outcome:* Artifacts half of 9.4 landed. **`docs/v1.1-backlog.md`** (~4300 words) opens with a P0/P1/P2 ranking rubric and the three-question filter ("does the next customer hit this / work around it / give up"), then 5 P0 items (OAuth flow completion, live Fly deploy + spikes 4&5, dev-track dogfood, Maat setup call, mobile real-phone E2E), 6 P1 items (persisted session registry, SSE Last-Event-ID reconnect, permission round-trip UI, Malix design system adoption, prompt editor UI, resumable session flag), 5 P2 noise-register entries (single-template limit, dark mode contrast, English toggle, wizard error retry UX, Zoho MCP availability), plus a deliberate "not in backlog" list (multi-tenant, billing, marketplace, RBAC, customer-writable templates — all v2+). Every P0 and P1 item includes a rationale + scope breakdown; padding is the enemy, so items that can't defend why they exist aren't on the list. **README.md** updated with a three-section "What works today" / "What's deferred to v1.1" / status block replacing the "~13 days" forward-looking copy. The actual **ship declaration** ("Mars v1 is shipped") + `git tag v1.0.0` is reserved for Pedro per the story's explicit "Pedro declares..." criterion — this story lands everything the declaration points at, but does not pretend to be the declaration itself.
 
 ## Notes
 

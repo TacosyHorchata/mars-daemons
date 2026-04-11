@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import click
 
+from mars.deploy import deploy_command
 from mars.init import init_command
+from mars.ssh import ssh_command
 
 
 @click.group()
@@ -14,6 +16,8 @@ def cli() -> None:
 
 
 cli.add_command(init_command)
+cli.add_command(deploy_command)
+cli.add_command(ssh_command)
 
 
 if __name__ == "__main__":

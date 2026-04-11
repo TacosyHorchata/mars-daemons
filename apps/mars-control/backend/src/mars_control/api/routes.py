@@ -20,6 +20,7 @@ from typing import AsyncIterator, Callable
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr, Field
 
@@ -73,6 +74,12 @@ class PromptUpdatePayload(BaseModel):
     content: str = Field(..., min_length=1, max_length=256 * 1024)
 
 
+class SessionInputPayload(BaseModel):
+    """Request body for ``POST /sessions/{id}/input`` — user message to a daemon."""
+
+    text: str = Field(..., min_length=1, max_length=64 * 1024)
+
+
 #: Callable that maps (agent_name, session_id) → supervisor base URL.
 #: v1 lookup is a tiny in-memory dict; Epic 5 replaces it with a
 #: persisted session registry.
@@ -91,6 +98,8 @@ def create_control_app(
     email_sender: EmailSender | None = None,
     magic_link_base_url: str | None = None,
     magic_link_rate_limiter: RateLimiter | None = None,
+    default_supervisor_url: str | None = None,
+    cors_allow_origins: list[str] | None = None,
 ) -> FastAPI:
     """Build a FastAPI app for the Mars control plane.
 
@@ -155,6 +164,33 @@ def create_control_app(
     # to 5 req/min/IP when the caller doesn't inject one.
     effective_rate_limiter = magic_link_rate_limiter or RateLimiter()
 
+    # Local Fly emulation (pre-deploy): when the admin points
+    # ``MARS_DEFAULT_SUPERVISOR_URL`` at a single runtime supervisor
+    # (docker or uvicorn on localhost:8080), ``GET /sessions`` and
+    # ``POST /sessions/{id}/input`` proxy there directly. Epic 5 replaces
+    # this single-target env var with a persisted session registry that
+    # can fan out to N supervisors.
+    effective_default_supervisor = (
+        default_supervisor_url
+        if default_supervisor_url is not None
+        else os.environ.get("MARS_DEFAULT_SUPERVISOR_URL", "") or None
+    )
+
+    # Local dev CORS — the frontend runs on :3000 and the control plane
+    # on :8000 in local mode, which are different origins. Production
+    # (same-origin behind Fly) does not need this middleware. Defaults
+    # to the MARS_CORS_ORIGINS env var (comma-separated) or an empty
+    # list when neither is set.
+    effective_cors_origins = (
+        cors_allow_origins
+        if cors_allow_origins is not None
+        else [
+            o.strip()
+            for o in os.environ.get("MARS_CORS_ORIGINS", "").split(",")
+            if o.strip()
+        ]
+    )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         effective_store.init()
@@ -173,6 +209,15 @@ def create_control_app(
     )
     app.state.event_store = effective_store
     app.state.sse_sink = effective_sink
+
+    if effective_cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=effective_cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+        )
 
     app.include_router(
         create_ingest_router(effective_store, effective_secret, effective_sink)
@@ -331,6 +376,62 @@ def create_control_app(
             "supervisor": supervisor_url,
             "result": resp.json() if resp.content else {},
         }
+
+    # ------------------------------------------------------------------
+    # Session proxy — v1 forwards to MARS_DEFAULT_SUPERVISOR_URL so the
+    # browser only ever talks to the control plane. Epic 5 replaces this
+    # with a persisted session registry that can fan out to multiple
+    # supervisors and aggregate results.
+    # ------------------------------------------------------------------
+    def _require_default_supervisor() -> str:
+        if not effective_default_supervisor:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "no default supervisor configured — set "
+                    "MARS_DEFAULT_SUPERVISOR_URL or pass default_supervisor_url "
+                    "to create_control_app()"
+                ),
+            )
+        return effective_default_supervisor
+
+    @app.get("/sessions")
+    async def list_sessions_proxy() -> dict[str, object]:
+        supervisor = _require_default_supervisor()
+        target = f"{supervisor.rstrip('/')}/sessions"
+        try:
+            resp = await effective_http.get(target)
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"supervisor unreachable at {target}: {exc}",
+            ) from exc
+        if resp.status_code >= 400:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"supervisor returned {resp.status_code}: {resp.text[:500]}",
+            )
+        return resp.json()
+
+    @app.post("/sessions/{session_id}/input")
+    async def session_input_proxy(
+        session_id: str, payload: SessionInputPayload
+    ) -> dict[str, object]:
+        supervisor = _require_default_supervisor()
+        target = f"{supervisor.rstrip('/')}/sessions/{session_id}/input"
+        try:
+            resp = await effective_http.post(target, json={"text": payload.text})
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"supervisor unreachable at {target}: {exc}",
+            ) from exc
+        if resp.status_code >= 400:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"supervisor: {resp.text[:500]}",
+            )
+        return resp.json()
 
     @app.get("/sessions/{session_id}/stream")
     async def session_stream(session_id: str, request: Request) -> StreamingResponse:

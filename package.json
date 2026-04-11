@@ -1,0 +1,9 @@
+{
+  "name": "mars-daemons",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mars — a cloud platform for hosting AI daemons powered by Claude Code and Codex CLIs.",
+  "scripts": {
+    "typecheck": "echo \"no typecheck targets yet (scaffold)\""
+  }
+}

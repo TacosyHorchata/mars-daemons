@@ -96,7 +96,7 @@ Pedro chose parallel spikes (not a dedicated Day 0), so these run alongside repo
 
 Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 2 are hard prerequisites for Epic 1.
 
-- [ ] **Story 0.1 — Repo scaffold + CI** (~1h)
+- [x] **Story 0.1 — Repo scaffold + CI** (~1h)
   - *Goal:* Monorepo layout (apps/, packages/, tests/, docs/, examples/, spikes/) with GitHub Actions CI running Python + Node checks on PR.
   - *Files:* `.github/workflows/ci.yml`, `README.md`, `pyproject.toml`
   - *Done when:* empty scaffold merged to main with CI green

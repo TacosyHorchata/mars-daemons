@@ -103,10 +103,11 @@ Both are solved by: (a) persisting a session handle to the volume, (b) reconcili
 
 Total: **4 stories**, ~8h budget. NEVER auto-resume — all recovery requires human click on "Resume".
 
-- [ ] **Story 5.1 — `SessionHandle` + atomic write + PID check** (~2h)
+- [x] **Story 5.1 — `SessionHandle` + atomic write + PID check** (~2h)
   - *Goal:* `SessionHandle` dataclass with JSON serde, atomic writes via `.tmp` + fsync + rename, and PID liveness check via `os.kill(pid, 0)` plus cmdline verification.
-  - *Files:* `apps/mars-runtime/src/session/handle.py`
+  - *Files:* `apps/mars-runtime/src/session/handle.py`, `tests/runtime/test_session_handle.py`
   - *Done when:* handle survives partial-write crash and PID check distinguishes alive/dead processes
+  - *Outcome:* Shipped as `PersistedSessionHandle` (distinct from the runtime `SessionHandle`). Atomic write via low-level `os.open/write/fsync/close/replace`, parent-dir create, 0600 perms, `.tmp` cleanup. `read_handle` maps every parse failure to `None`. `is_pid_alive` (signal 0 idiom), `find_process_cmdline` (/proc on Linux + `ps` fallback on macOS), `is_claude_or_codex_process` with exact token matching so PID reuse on `claudetronic` / `codexplorer` is caught. `scan_workspace_handles` walks `/workspace/*` sorted, returns `(dir, handle_or_None)` pairs. 30 unit tests. Full suite 422 passed, 1 skipped.
 
 - [ ] **Story 5.2 — Hard cap + per-session cwd + structured logging** (~2h)
   - *Goal:* `SessionManager` enforces 3-session cap (429 on overflow), creates per-session `/workspace/<session-id>/` cwd, and binds `session_id` via `structlog` contextvars.

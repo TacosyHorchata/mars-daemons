@@ -5,6 +5,7 @@ from __future__ import annotations
 import click
 
 from mars.deploy import deploy_command
+from mars.edit_prompt import edit_prompt_command
 from mars.init import init_command
 from mars.memory import memory_export_command
 from mars.runtime_local import runtime_local_command
@@ -22,6 +23,7 @@ cli.add_command(deploy_command)
 cli.add_command(ssh_command)
 cli.add_command(runtime_local_command)
 cli.add_command(memory_export_command)
+cli.add_command(edit_prompt_command)
 
 
 if __name__ == "__main__":

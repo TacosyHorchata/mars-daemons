@@ -13,6 +13,7 @@ import asyncio
 import json
 import sys
 import time
+from typing import Callable
 
 import pytest
 from fastapi.testclient import TestClient
@@ -340,6 +341,141 @@ def test_permission_response_returns_501(client):
         json={"tool_use_id": "tu-1", "approved": True},
     )
     assert resp.status_code == 501
+    client.delete(f"/sessions/{sid}")
+
+
+# ---------------------------------------------------------------------------
+# POST /sessions/{id}/reload-prompt — Story 6.4 admin edit path
+# ---------------------------------------------------------------------------
+
+
+def _reload_stub_spawn_factory(
+    prompt_path_via_env: bool = False,
+) -> tuple[Callable, dict]:
+    """Build a spawn fn that echoes session.init + reads an AgentConfig
+    whose system_prompt_path can be inspected / written to. Used to
+    drive the reload-prompt tests against a real on-disk prompt file.
+    """
+    state: dict = {}
+
+    async def _spawn(config, session_id):
+        state["config"] = config
+        return await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-u",
+            "-c",
+            _STUB_SCRIPT,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+    return _spawn, state
+
+
+def test_reload_prompt_writes_new_content_and_restarts(tmp_path):
+    """End-to-end: write a prompt file, spawn a session that uses it,
+    POST /reload-prompt with new content, verify the file was
+    updated on disk and the session is still live."""
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    prompt_path = workdir / "CLAUDE.md"
+    prompt_path.write_text("You are an old prompt.\n")
+
+    spawn, state = _reload_stub_spawn_factory()
+    mgr = SessionManager(spawn_fn=spawn)
+    app = create_app(manager=mgr)
+
+    payload = {
+        "name": "reload-test",
+        "description": "prompt-reload agent",
+        "runtime": "claude-code",
+        "system_prompt_path": "CLAUDE.md",
+        "tools": [],
+        "env": [],
+        "workdir": str(workdir),
+    }
+
+    with TestClient(app) as c:
+        created = c.post("/sessions", json=payload).json()
+        sid = created["session_id"]
+
+        new_prompt = "You are a BRAND NEW prompt — admin updated me.\n"
+        r = c.post(
+            f"/sessions/{sid}/reload-prompt",
+            json={"content": new_prompt},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["session_id"] == sid
+        assert body["status"] == "running"
+        assert body["prompt_bytes_written"] == len(new_prompt)
+
+        # The prompt file on disk has been updated
+        assert prompt_path.read_text() == new_prompt
+
+        # Session still exists + is alive after restart
+        fetched = c.get(f"/sessions/{sid}").json()
+        assert fetched["session_id"] == sid
+        assert fetched["status"] == "running"
+
+        c.delete(f"/sessions/{sid}")
+
+
+def test_reload_prompt_rejects_path_traversal(tmp_path):
+    """If AgentConfig.system_prompt_path escapes workdir (via .. or
+    an absolute path outside the dir), the supervisor MUST refuse."""
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    outside = tmp_path / "outside.md"
+
+    spawn, _ = _reload_stub_spawn_factory()
+    mgr = SessionManager(spawn_fn=spawn)
+    app = create_app(manager=mgr)
+
+    # AgentConfig validation restricts workdir to an absolute path;
+    # the system_prompt_path is otherwise freeform so we can test
+    # traversal here.
+    payload = {
+        "name": "traverse-test",
+        "description": "traversal attempt",
+        "runtime": "claude-code",
+        "system_prompt_path": "../outside.md",
+        "tools": [],
+        "env": [],
+        "workdir": str(workdir),
+    }
+
+    with TestClient(app) as c:
+        created = c.post("/sessions", json=payload).json()
+        sid = created["session_id"]
+        r = c.post(
+            f"/sessions/{sid}/reload-prompt",
+            json={"content": "haha pwned"},
+        )
+        assert r.status_code == 400
+        assert "outside" in r.text.lower() or "refusing" in r.text.lower()
+        # The file outside workdir MUST NOT exist
+        assert not outside.exists()
+        c.delete(f"/sessions/{sid}")
+
+
+def test_reload_prompt_404_on_unknown_session(client):
+    r = client.post(
+        "/sessions/mars-missing/reload-prompt",
+        json={"content": "hello"},
+    )
+    assert r.status_code == 404
+
+
+def test_reload_prompt_rejects_empty_content(client):
+    created = client.post("/sessions", json=_agent_payload()).json()
+    sid = created["session_id"]
+    r = client.post(
+        f"/sessions/{sid}/reload-prompt",
+        json={"content": ""},
+    )
+    assert r.status_code == 422
     client.delete(f"/sessions/{sid}")
 
 

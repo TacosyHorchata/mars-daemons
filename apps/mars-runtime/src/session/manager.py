@@ -189,6 +189,66 @@ class SessionManager:
         handle.terminated_at = datetime.now(timezone.utc)
         return True
 
+    async def restart(
+        self, session_id: str, *, timeout: float = 5.0
+    ) -> SessionHandle | None:
+        """Restart a session's subprocess *in place*, preserving the
+        :attr:`session_id`.
+
+        Story 6.4's CLAUDE.md admin-edit flow needs the session to
+        survive a prompt update so the browser URL (keyed on
+        session_id) doesn't have to follow a redirect after every
+        admin tweak. Instead of going through
+        :meth:`kill` + :meth:`spawn` (which would mint a new id),
+        this method:
+
+        1. Signals the running subprocess with SIGKILL (authoritative
+           stop — no graceful shutdown dance).
+        2. Awaits the reap via ``proc.wait()`` with ``timeout``.
+        3. Spawns a fresh subprocess using the same stored config.
+        4. Updates the handle in place and returns it.
+
+        Returns ``None`` if ``session_id`` is unknown. Raises whatever
+        the spawn function raises (file not found, etc.) — the caller
+        is the supervisor endpoint, which turns that into a 500 the
+        admin UI can display.
+        """
+        handle = self._sessions.get(session_id)
+        if handle is None:
+            return None
+
+        old_proc = handle.process
+        if old_proc.returncode is None:
+            try:
+                old_proc.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                await asyncio.wait_for(old_proc.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                # SIGKILL didn't land within the timeout — tombstone
+                # the old process and keep going. This matches
+                # kill()'s orphan-tracking behavior.
+                self._orphaned.append(
+                    SessionHandle(
+                        session_id=f"{session_id}-orphan",
+                        name=handle.name,
+                        description=handle.description,
+                        config=handle.config,
+                        process=old_proc,
+                        started_at=handle.started_at,
+                        status="kill_timeout",
+                        terminated_at=datetime.now(timezone.utc),
+                    )
+                )
+
+        new_proc = await self._spawn_fn(handle.config, session_id)
+        handle.process = new_proc
+        handle.started_at = datetime.now(timezone.utc)
+        handle.status = "running"
+        handle.terminated_at = None
+        return handle
+
     async def shutdown(self) -> None:
         """Kill every registered session concurrently.
 

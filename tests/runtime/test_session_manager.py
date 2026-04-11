@@ -417,3 +417,54 @@ def test_error_exited_session_has_exited_error_status():
 def test_orphaned_list_starts_empty():
     mgr = SessionManager(spawn_fn=_sleep_spawn)
     assert mgr.orphaned == []
+
+
+# ---------------------------------------------------------------------------
+# restart() — Story 6.4 admin-edit path
+# ---------------------------------------------------------------------------
+
+
+def test_restart_preserves_session_id_and_replaces_process():
+    async def _run():
+        mgr = SessionManager(spawn_fn=_sleep_spawn)
+        handle = await mgr.spawn(_make_config("restartable"))
+        original_sid = handle.session_id
+        original_pid = handle.pid
+
+        restarted = await mgr.restart(original_sid)
+        assert restarted is not None
+        # Session id preserved
+        assert restarted.session_id == original_sid
+        # New subprocess, different pid
+        assert restarted.pid != original_pid
+        # Handle still registered under the same id
+        assert mgr.get(original_sid) is restarted
+        # Old process is reaped
+        await mgr.kill(original_sid)
+
+    asyncio.run(_run())
+
+
+def test_restart_unknown_session_returns_none():
+    async def _run():
+        mgr = SessionManager(spawn_fn=_sleep_spawn)
+        result = await mgr.restart("mars-nope")
+        assert result is None
+
+    asyncio.run(_run())
+
+
+def test_restart_resets_started_at_and_status():
+    async def _run():
+        mgr = SessionManager(spawn_fn=_sleep_spawn)
+        handle = await mgr.spawn(_make_config("time-tracked"))
+        original_started = handle.started_at
+        # give time a visible gap
+        await asyncio.sleep(0.01)
+        await mgr.restart(handle.session_id)
+        assert handle.started_at > original_started
+        assert handle.status == "running"
+        assert handle.terminated_at is None
+        await mgr.kill(handle.session_id)
+
+    asyncio.run(_run())

@@ -38,6 +38,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -91,6 +92,25 @@ class PermissionResponsePayload(BaseModel):
 
     tool_use_id: str
     approved: bool
+
+
+class ReloadPromptPayload(BaseModel):
+    """Request body for ``POST /sessions/{id}/reload-prompt``.
+
+    The admin edit flow (Story 6.4) sends the full new prompt text.
+    The supervisor writes it to ``config.system_prompt_path`` and
+    then restarts the subprocess so the next turn sees the updated
+    file. Maximum content length caps at 256 KB — real CLAUDE.md
+    files are a few KB at most; anything larger is almost certainly
+    a bug in the caller.
+    """
+
+    content: str = Field(
+        ...,
+        min_length=1,
+        max_length=256 * 1024,
+        description="Full new prompt text (usually CLAUDE.md).",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -445,5 +465,84 @@ def create_app(
                 "roundtrip.md)"
             ),
         )
+
+    @app.post("/sessions/{session_id}/reload-prompt")
+    async def reload_prompt(
+        session_id: str, payload: ReloadPromptPayload
+    ) -> dict[str, Any]:
+        """Admin-only: write a new CLAUDE.md and restart the subprocess.
+
+        Story 6.4 — the ONLY legitimate path to update the daemon's
+        system prompt. The PreToolUse hooks inside the container
+        still deny Edit/Write on CLAUDE.md / AGENTS.md for the
+        daemon itself, so this is a defense-in-depth: even if a
+        daemon finds a way past the hooks, it cannot reach this
+        endpoint (it binds to the supervisor's control API, not
+        the daemon's tool surface).
+
+        Path safety: the prompt file path is taken from the running
+        ``AgentConfig.system_prompt_path``. The supervisor refuses to
+        write outside the session's working directory so a malformed
+        config can't trick it into writing to ``/etc``.
+        """
+        handle = _require_session(session_id)
+        prompt_path = Path(handle.config.system_prompt_path)
+        workdir = Path(handle.config.workdir)
+        if not prompt_path.is_absolute():
+            prompt_path = workdir / prompt_path
+        try:
+            resolved = prompt_path.resolve(strict=False)
+            resolved.relative_to(workdir.resolve(strict=False))
+        except (ValueError, OSError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"system_prompt_path {handle.config.system_prompt_path!r} "
+                    f"resolves outside the session workdir {workdir!s} — refusing write"
+                ),
+            ) from exc
+
+        try:
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(payload.content, encoding="utf-8")
+        except OSError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"failed to write prompt file: {exc}",
+            ) from exc
+
+        # Restart the subprocess so the next turn picks up the new
+        # prompt. This is the full restart-in-place dance: the pump
+        # is cancelled, the manager kills + respawns, and a fresh
+        # pump is started on the new process.
+        pump = pumps.pop(session_id, None)
+        if pump is not None and pump.task is not None and not pump.task.done():
+            pump.task.cancel()
+            try:
+                await pump.task
+            except asyncio.CancelledError:
+                pass
+
+        restarted = await mgr.restart(session_id)
+        if restarted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"session {session_id!r} no longer exists",
+            )
+
+        queue: asyncio.Queue[MarsEventBase] = asyncio.Queue(
+            maxsize=event_queue_size
+        )
+        queues[session_id] = queue
+        new_pump = _SessionPump(restarted, queue, mgr)
+        new_pump.start()
+        pumps[session_id] = new_pump
+
+        return {
+            "session_id": session_id,
+            "status": restarted.status,
+            "pid": restarted.pid,
+            "prompt_bytes_written": len(payload.content),
+        }
 
     return app

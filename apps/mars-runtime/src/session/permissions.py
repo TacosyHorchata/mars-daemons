@@ -115,11 +115,15 @@ def derive_policy(config: AgentConfig) -> PermissionPolicy:
     )
 
 
-def build_claude_code_settings(policy: PermissionPolicy) -> dict[str, Any]:
-    """Render a :class:`PermissionPolicy` into the exact dict shape
-    that ``claude_code_settings.json`` expects.
+def build_claude_code_settings(
+    policy: PermissionPolicy,
+    *,
+    hooks_dir: str = "/app/hooks",
+) -> dict[str, Any]:
+    """Render a :class:`PermissionPolicy` into Claude Code's real
+    ``settings.json`` shape as verified against the 2.1.x hook docs.
 
-    The structure is Claude Code's own hook schema:
+    Claude Code's PreToolUse hook schema (confirmed for 2.1.101) is:
 
     .. code-block:: json
 
@@ -128,49 +132,70 @@ def build_claude_code_settings(policy: PermissionPolicy) -> dict[str, Any]:
             "hooks": {
                 "PreToolUse": [
                     {
-                        "matcher": {"tool": "Edit", "file_path": "CLAUDE.md"},
-                        "action": "deny",
-                        "reason": "..."
-                    },
-                    ...
+                        "matcher": "Edit|Write|MultiEdit",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": "/app/hooks/deny-protected-edit.sh",
+                                "timeout": 10
+                            }
+                        ]
+                    }
                 ]
             }
         }
 
-    Epic 3 writes this dict to a file and passes ``--settings`` to
-    ``claude -p`` at spawn time. Story 1.6 is the single source of
-    truth for the file's shape so the Docker bake step stays honest.
+    The ``matcher`` field is a tool-name filter
+    (exact string, ``|``-separated list, or regex). The deny decision
+    is produced by the command hook itself — the script reads the
+    tool-call JSON from stdin and returns exit code 2 (blocking) with
+    a stderr message that Claude Code surfaces back to the model.
+
+    Story 3.2 ships the canonical scripts at
+    ``apps/mars-runtime/hooks/deny-protected-edit.sh`` and
+    ``apps/mars-runtime/hooks/deny-secret-read-bash.sh``. The Mars
+    image copies them to ``hooks_dir`` (default ``/app/hooks``) and
+    this function stamps that absolute path into the rendered dict so
+    the two layers never drift.
+
+    Note: the ``denied_edit_paths`` and ``denied_bash_patterns`` fields
+    on the policy are kept for documentation / introspection, but the
+    rendered settings dict does NOT embed them — the per-path / per-
+    pattern logic lives inside the hook scripts. They are the single
+    source of truth; this function only wires paths to names.
     """
-    hooks: list[dict[str, Any]] = []
-
-    for path in policy.denied_edit_paths:
-        for tool in ("Edit", "Write", "MultiEdit"):
-            hooks.append(
-                {
-                    "matcher": {"tool": tool, "file_path": path},
-                    "action": "deny",
-                    "reason": (
-                        f"{path} is admin-only in Mars — edits are blocked to "
-                        "preserve the daemon's system prompt contract. See "
-                        "docs/security.md and v1 plan item 8."
-                    ),
-                }
-            )
-
-    for pattern in policy.denied_bash_patterns:
-        hooks.append(
-            {
-                "matcher": {"tool": "Bash", "command_regex": pattern},
-                "action": "deny",
-                "reason": (
-                    "Bash commands matching secret-read patterns are blocked "
-                    "as a speed bump. See docs/security.md for the v1 threat "
-                    "model."
-                ),
-            }
-        )
+    # The earlier (1.6) version inlined per-path matchers into the
+    # settings JSON. That shape was not the real Claude Code schema.
+    # We intentionally reference the policy's denied lists via the
+    # script-side docstrings instead of embedding them here, so the
+    # policy value object still documents the contract.
+    _ = policy.denied_edit_paths  # documentation-only reference
+    _ = policy.denied_bash_patterns
 
     return {
         "permissionMode": policy.permission_mode,
-        "hooks": {"PreToolUse": hooks},
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Edit|Write|MultiEdit",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"{hooks_dir}/deny-protected-edit.sh",
+                            "timeout": 10,
+                        }
+                    ],
+                },
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"{hooks_dir}/deny-secret-read-bash.sh",
+                            "timeout": 10,
+                        }
+                    ],
+                },
+            ]
+        },
     }

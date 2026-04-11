@@ -36,6 +36,7 @@ def build_claude_command(
     config: AgentConfig,
     *,
     with_stdin_stream_json: bool = False,
+    settings_path: str | None = None,
 ) -> list[str]:
     """Build the ``claude -p`` command line from an :class:`AgentConfig`.
 
@@ -56,6 +57,13 @@ def build_claude_command(
     read. The Mars supervisor spawns with ``True`` (Story 1.5), while
     contract + subprocess-lifecycle tests leave it ``False`` and use
     ``stdin=DEVNULL`` so the child never reads.
+
+    ``settings_path`` (default ``None``) passes ``--settings <path>`` to
+    load ``claude_code_settings.json``. In production, the Mars image
+    bakes a settings file at ``/app/claude_code_settings.json`` that
+    wires PreToolUse hooks to deny CLAUDE.md / AGENTS.md edits and
+    secret-read Bash patterns — see Story 3.2 and
+    :mod:`session.permissions`. Tests leave this ``None``.
     """
     cmd: list[str] = [
         "claude",
@@ -66,6 +74,8 @@ def build_claude_command(
         "--permission-mode",
         "acceptEdits",
     ]
+    if settings_path:
+        cmd.extend(["--settings", settings_path])
     if with_stdin_stream_json:
         cmd.extend(["--input-format", "stream-json"])
     if config.tools:
@@ -135,6 +145,7 @@ async def spawn_claude_code(
     *,
     extra_env: Mapping[str, str] | None = None,
     stdin_stream_json: bool = False,
+    settings_path: str | None = None,
 ) -> asyncio.subprocess.Process:
     """Spawn a ``claude -p`` subprocess for the given session.
 
@@ -151,6 +162,14 @@ async def spawn_claude_code(
       the command line. Used by :mod:`supervisor` (Story 1.5) to enable
       ``POST /sessions/{id}/input`` injection.
 
+    ``settings_path`` (default ``None``) — explicit override for the
+    ``claude_code_settings.json`` file. If ``None``, the function falls
+    back to the ``MARS_CLAUDE_CODE_SETTINGS`` environment variable so
+    the Mars container can set ``MARS_CLAUDE_CODE_SETTINGS=/app/claude_code_settings.json``
+    once and every spawned session inherits it without the caller
+    having to know the path. Pass an explicit empty string to force
+    "no settings file" for tests.
+
     ``session_id`` is currently unused by the command itself — Claude
     Code maintains its own session id internally — but the argument is
     kept in the signature so Mars has a single place to thread the
@@ -158,7 +177,13 @@ async def spawn_claude_code(
     Epic 6).
     """
     del session_id  # reserved for future use (see docstring)
-    cmd = build_claude_command(config, with_stdin_stream_json=stdin_stream_json)
+    if settings_path is None:
+        settings_path = os.environ.get("MARS_CLAUDE_CODE_SETTINGS") or None
+    cmd = build_claude_command(
+        config,
+        with_stdin_stream_json=stdin_stream_json,
+        settings_path=settings_path,
+    )
     env = build_claude_env(config, extra=extra_env)
     stdin_arg = (
         asyncio.subprocess.PIPE if stdin_stream_json else asyncio.subprocess.DEVNULL

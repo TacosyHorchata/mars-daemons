@@ -1,6 +1,27 @@
 {
   "permissionMode": "acceptEdits",
   "hooks": {
-    "PreToolUse": []
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/app/hooks/deny-protected-edit.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/app/hooks/deny-secret-read-bash.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }

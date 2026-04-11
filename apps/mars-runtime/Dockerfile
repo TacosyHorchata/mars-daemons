@@ -87,13 +87,18 @@ COPY --chown=mars:mars apps/mars-control/backend/src/mars_control /app/control-s
 COPY --chown=mars:mars apps/mars-runtime/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 
-# --- Claude Code security settings -----------------------------------------
-# The baked-in settings.json contains PreToolUse hooks that block edits
-# to CLAUDE.md / AGENTS.md and secret-read bash patterns. Story 3.2 is
-# the single source of truth for the file content; Story 3.1 just
-# wires it into the image. If the file does not exist at build time
-# (pre-3.2), we create a minimal placeholder so the image still builds.
+# --- Claude Code security settings + PreToolUse hook scripts ---------------
+# The baked-in settings.json wires two PreToolUse command hooks (Story 3.2).
+# The scripts read tool input from stdin and exit 2 to deny:
+#   * deny-protected-edit.sh: blocks Edit/Write/MultiEdit on CLAUDE.md,
+#     AGENTS.md, claude_code_settings.json (prompt immutability).
+#   * deny-secret-read-bash.sh: blocks Bash commands matching
+#     env / printenv / echo $ / bare `set` (secret-read speed bump).
+# The supervisor passes --settings /app/claude_code_settings.json when
+# spawning ``claude`` via the MARS_CLAUDE_CODE_SETTINGS env var below.
 COPY --chown=mars:mars apps/mars-runtime/claude_code_settings.json /app/claude_code_settings.json
+COPY --chown=mars:mars apps/mars-runtime/hooks /app/hooks
+RUN chmod +x /app/hooks/*.sh
 
 USER mars
 
@@ -101,12 +106,13 @@ USER mars
 # comes first (events, session, supervisor), mars-control src second
 # (mars_control package + the shared schema module).
 #
-# NOTE: the baked claude_code_settings.json is *not* wired into the
-# `claude -p` command yet — that is Story 3.2's scope. The file exists
-# in the image as a known path so 3.2 can turn on --settings + the
-# PreToolUse deny hooks without touching the image layout.
+# MARS_CLAUDE_CODE_SETTINGS is read by
+# ``session.claude_code.spawn_claude_code`` and passed as ``--settings``
+# to every ``claude -p`` invocation, activating the baked PreToolUse
+# hooks.
 ENV PYTHONPATH="/app/runtime-src:/app/control-src" \
-    PORT=8080
+    PORT=8080 \
+    MARS_CLAUDE_CODE_SETTINGS="/app/claude_code_settings.json"
 
 EXPOSE 8080
 

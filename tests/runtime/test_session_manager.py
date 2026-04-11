@@ -270,6 +270,36 @@ def test_build_claude_command_does_not_set_input_format_in_v1_4():
     assert "--input-format" not in cmd
 
 
+def test_build_claude_command_threads_settings_path():
+    """Story 3.2: ``--settings /path/to/settings.json`` activates the
+    baked PreToolUse hooks."""
+    cmd = build_claude_command(
+        _make_config("with-settings"),
+        settings_path="/app/claude_code_settings.json",
+    )
+    assert "--settings" in cmd
+    idx = cmd.index("--settings")
+    assert cmd[idx + 1] == "/app/claude_code_settings.json"
+
+
+def test_build_claude_command_without_settings_omits_flag():
+    cmd = build_claude_command(_make_config("bare"))
+    assert "--settings" not in cmd
+
+
+def test_build_claude_command_settings_interop_with_other_flags():
+    """All flags coexist when a settings path and tools and stdin
+    stream-json are all set."""
+    cmd = build_claude_command(
+        _make_config("full", tools=["Bash", "Edit"]),
+        with_stdin_stream_json=True,
+        settings_path="/etc/mars/settings.json",
+    )
+    assert "--settings" in cmd and "/etc/mars/settings.json" in cmd
+    assert "--input-format" in cmd
+    assert "--allowed-tools" in cmd
+
+
 def test_build_claude_command_without_tools_has_no_allowlist_flag():
     cmd = build_claude_command(_make_config("no-tools", tools=[]))
     assert "--allowed-tools" not in cmd

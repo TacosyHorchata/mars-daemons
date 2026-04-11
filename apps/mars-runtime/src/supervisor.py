@@ -48,6 +48,7 @@ from events.types import MARS_EVENT_ADAPTER, MarsEventBase
 from schema.agent import AgentConfig
 from session.claude_code import spawn_claude_code
 from session.claude_code_stream import CriticalParseError, parse_stream
+from session.codex import spawn_codex
 from session.manager import SessionHandle, SessionManager, SpawnFn
 
 # Hard cap on request body size. An agent.yaml is under a few hundred
@@ -220,11 +221,28 @@ _DEFAULT_QUEUE_SIZE = 1024
 
 
 def _default_spawn_fn() -> SpawnFn:
-    """Production default: spawn real claude with stdin piped for
-    :func:`POST /sessions/{id}/input`."""
+    """Production default: dispatch on ``config.runtime``.
 
-    async def _spawn(config: AgentConfig, session_id: str) -> asyncio.subprocess.Process:
-        return await spawn_claude_code(config, session_id, stdin_stream_json=True)
+    * ``claude-code`` → :func:`session.claude_code.spawn_claude_code`
+      with ``stdin_stream_json=True`` so ``POST /sessions/{id}/input``
+      can inject user events.
+    * ``codex`` → :func:`session.codex.spawn_codex`. Story 3.5 only
+      wires spawn + dispatch; a full codex event parser is v1.1.
+    """
+
+    async def _spawn(
+        config: AgentConfig, session_id: str
+    ) -> asyncio.subprocess.Process:
+        if config.runtime == "claude-code":
+            return await spawn_claude_code(
+                config, session_id, stdin_stream_json=True
+            )
+        if config.runtime == "codex":
+            return await spawn_codex(config, session_id, stdin_pipe=True)
+        raise ValueError(
+            f"unknown runtime {config.runtime!r} in agent.yaml — "
+            "supported: 'claude-code', 'codex'"
+        )
 
     return _spawn
 

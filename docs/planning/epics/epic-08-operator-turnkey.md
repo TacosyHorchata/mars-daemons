@@ -113,14 +113,34 @@ The trick is that the substrate is already built: Epics 1–6 cover everything M
 - [ ] At least one successful Template deploy → chat → message → response loop completed
 - [ ] Ready to hand to Maat on Day 13
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~5 stories:*
-- Story 8.1: `tracker-ops-assistant.yaml` + Spanish system prompt
-- Story 8.2: Templates tab + TemplateList + TemplateCard
-- Story 8.3: OnboardingWizard steps 1–3 (welcome + Claude account prep)
-- Story 8.4: OnboardingWizard steps 4–6 (OAuth + secrets + deploy) + backend OAuth + deploy endpoints
-- Story 8.5: Mobile responsiveness sanity check + end-to-end test on real phone
+Total: **5 stories**, ~8h budget. Without this epic, Maat cannot use Mars and the design-partner thesis collapses.
+
+- [ ] **Story 8.1 — `tracker-ops-assistant.yaml` + Spanish system prompt** (~1h)
+  - *Goal:* Pre-baked template agent.yaml with WhatsApp/Zoho/Pilot MCPs + Spanish system prompt tuned for Orion ops assistant, with placeholder secrets the wizard fills in.
+  - *Files:* `apps/mars-control/templates/tracker-ops-assistant.yaml`, `apps/mars-control/templates/tracker-ops-assistant.prompt.md`
+  - *Done when:* `AgentConfig.parse_file()` succeeds on the template
+
+- [ ] **Story 8.2 — Templates tab + discovery API** (~1h)
+  - *Goal:* Dashboard Templates tab with card grid rendering templates from `GET /templates`.
+  - *Files:* `apps/mars-control/frontend/app/dashboard/page.tsx`, `apps/mars-control/frontend/components/templates/TemplateList.tsx`, `apps/mars-control/frontend/components/templates/TemplateCard.tsx`, `apps/mars-control/backend/src/api/routes.py`
+  - *Done when:* Templates tab shows the Tracker Ops Assistant card with a working Start button
+
+- [ ] **Story 8.3 — OnboardingWizard steps 1–3** (~2h)
+  - *Goal:* Multi-step modal with welcome screen + Claude.ai signup redirect + Claude Max subscription redirect, with Spanish copy throughout.
+  - *Files:* `apps/mars-control/frontend/components/templates/OnboardingWizard.tsx`
+  - *Done when:* steps 1–3 navigate forward/back cleanly on mobile viewport
+
+- [ ] **Story 8.4 — ★ OnboardingWizard steps 4–6 + OAuth + deploy endpoint** (~3h)
+  - *Goal:* Anthropic OAuth flow (initiate/callback/encrypted store) + secrets form + `POST /templates/{name}/deploy` endpoint creating workspace + deploying daemon with SSE stage progress updates.
+  - *Files:* `apps/mars-control/backend/src/oauth/anthropic.py`, `apps/mars-control/backend/src/api/routes.py`, `apps/mars-control/frontend/components/templates/OnboardingWizard.tsx`
+  - *Done when:* fresh account → OAuth → secrets → deploy → chat opens, total elapsed <10min on mobile
+
+- [ ] **Story 8.5 — Mobile responsive sanity + real-phone E2E** (~1h)
+  - *Goal:* Chat view + wizard verified on real iOS Safari + Android Chrome with no broken input or keyboard overlap.
+  - *Files:* `apps/mars-control/frontend/app/chat/[sessionId]/page.tsx`
+  - *Done when:* end-to-end template deploy → chat message → response tested on Pedro's phone
 
 ## Notes
 

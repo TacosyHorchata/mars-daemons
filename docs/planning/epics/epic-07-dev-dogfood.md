@@ -86,12 +86,24 @@ The goal isn't to ship a polished PR reviewer — it's to *prove Mars works end-
 - [ ] All non-critical bugs filed as GitHub issues
 - [ ] Pedro explicitly signs off: "I would use this product tomorrow morning on its own merits"
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~3 stories:*
-- Story 7.1: Deploy PR reviewer + write system prompt + verify smoke tests 1–3 (functional)
-- Story 7.2: Verify smoke tests 4–7 (security, memory, auth)
-- Story 7.3: Bug fix pass + dogfood notes + backlog capture
+Total: **3 stories**, ~8h budget. Almost no new code — the epic is integration testing + bug fixes against earlier epics.
+
+- [ ] **Story 7.1 — Deploy PR reviewer + smoke tests 1–3** (~3h)
+  - *Goal:* Finalize `pr-reviewer-agent.yaml` + system prompt, deploy to Fly, run smoke tests 1 (chat + tool use + laptop-close survival + `mars ssh`), 2 (3-session isolation + crash recovery), 3 (local mode).
+  - *Files:* `examples/pr-reviewer-agent.yaml`, `examples/pr-reviewer-prompt.md`
+  - *Done when:* all 3 smoke tests pass end-to-end, including 1+ hour laptop-close survival
+
+- [ ] **Story 7.2 — Smoke tests 4–7 (security, memory, auth)** (~2h)
+  - *Goal:* Verify CLAUDE.md immutability + admin edit flow, `echo $SECRET` blocked, 30-min memory export bundle exists, fresh-email magic-link signup round-trip.
+  - *Files:* *(exercises Epics 4 and 6 — no new files)*
+  - *Done when:* all 4 smoke tests pass and memory bundle is inspectable
+
+- [ ] **Story 7.3 — Bug fix pass + dogfood notes + backlog capture** (~3h)
+  - *Goal:* Fix every critical bug hit during real use, capture raw observations, file non-critical issues tagged `v1.1`.
+  - *Files:* `docs/dogfood-notes.md`
+  - *Done when:* Pedro signs off: "I would use this product tomorrow morning on its own merits"
 
 ## Notes
 

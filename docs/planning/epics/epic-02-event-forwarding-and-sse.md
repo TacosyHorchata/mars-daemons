@@ -82,13 +82,29 @@ This epic lifts those patterns almost verbatim and wires them together.
 - [ ] Failure test: kill control plane mid-session, restart, verify no event loss on durables
 - [ ] Docstrings on every public class/function
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~4 stories:*
-- Story 2.1: `HttpEventSink` lift from Camtom → `events/forwarder.py` in mars-runtime
-- Story 2.2: `events/ingest.py` with `X-Event-Secret` auth + SQLite persistence
-- Story 2.3: `SSEEventSink` lift from Camtom → `sse/stream.py` in mars-control
-- Story 2.4: Integration test spanning machine + control plane + browser
+Total: **4 stories**, ~8h budget. Most code is lifted from Camtom's `sink.py` + `router.py` with mechanical renames.
+
+- [ ] **Story 2.1 — `forwarder.py` outbound HTTP (lift from Camtom)** (~2h)
+  - *Goal:* Outbound HTTP event forwarder that batches events (up to 100 or 500ms) and POSTs to control plane with `X-Event-Secret` header, lifting `HttpEventSink` from Camtom `sink.py:33-83`.
+  - *Files:* `apps/mars-runtime/src/events/forwarder.py`
+  - *Done when:* forwarder retries on unreachable control plane and buffers up to 1000 events, dropping oldest ephemerals first
+
+- [ ] **Story 2.2 — `events/ingest.py` + SQLite persistence** (~2h)
+  - *Goal:* Control plane HTTP POST endpoint validating `X-Event-Secret`, persisting durable events to SQLite (WAL mode), rejecting unauthorized requests with 401.
+  - *Files:* `apps/mars-control/backend/src/events/ingest.py`, `apps/mars-control/backend/src/store/events.py`
+  - *Done when:* forwarder POST writes a row to events table; bad secret returns 401
+
+- [ ] **Story 2.3 — `sse/stream.py` browser fanout (lift from Camtom)** (~2h)
+  - *Goal:* Browser SSE fanout at `GET /sessions/{id}/stream` with 30s heartbeat + 5min idle timeout, lifting `SSEEventSink` + `_format_sse_event` from Camtom `sink.py:85-140` and `router.py:322-329,52-53,999-1128`.
+  - *Files:* `apps/mars-control/backend/src/sse/stream.py`, `apps/mars-control/backend/src/api/routes.py`
+  - *Done when:* `curl -N /sessions/{id}/stream` receives SSE-formatted events with heartbeat pings
+
+- [ ] **Story 2.4 — End-to-end integration test** (~2h)
+  - *Goal:* Integration test spanning mars-runtime → mars-control → browser SSE that verifies full round-trip and no durable event loss across control plane restart.
+  - *Files:* `tests/integration/test_event_pipeline.py`
+  - *Done when:* test passes through full runtime → control plane → SSE client round-trip including control plane restart
 
 ## Notes
 

@@ -112,14 +112,34 @@ Magic-link auth is squeezed into the same day as the chat UI. If either side blo
 - [ ] Auth protection verified on every protected route
 - [ ] Magic link email actually arrives (tested with Pedro's real inbox)
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~5 stories:*
-- Story 4.1: Next.js scaffolding + root layout + auth guard
-- Story 4.2: Magic-link backend (generate, send via Resend, verify)
-- Story 4.3: Signup + verify pages (frontend)
-- Story 4.4: Dashboard + session list page
-- Story 4.5: Chat view with 4 message type components + SSE client
+Total: **5 stories**, ~8h budget. Tight for one day — if chat view or magic-link auth blows budget, descope polish first.
+
+- [ ] **Story 4.1 — Next.js scaffold + root layout + auth guard** (~1h)
+  - *Goal:* Next.js app router scaffolding with `layout.tsx` that redirects unauthenticated users to `/signup`.
+  - *Files:* `apps/mars-control/frontend/app/layout.tsx`
+  - *Done when:* unauthenticated visit to `/dashboard` redirects to `/signup`
+
+- [ ] **Story 4.2 — Magic-link backend (Resend + JWT cookie)** (~2h)
+  - *Goal:* Backend endpoints to generate magic link tokens (15min, single-use), send via Resend, verify and issue JWT session cookie.
+  - *Files:* `apps/mars-control/backend/src/auth/magic_link.py`, `apps/mars-control/backend/src/auth/session.py`, `apps/mars-control/backend/src/auth/middleware.py`
+  - *Done when:* email → Resend → click → JWT cookie set → authenticated request to protected route returns 200
+
+- [ ] **Story 4.3 — Signup + verify pages** (~1h)
+  - *Goal:* Frontend signup form (email input) + verify landing page that receives token from URL and sets session cookie.
+  - *Files:* `apps/mars-control/frontend/app/signup/page.tsx`, `apps/mars-control/frontend/app/auth/verify/page.tsx`
+  - *Done when:* fresh email → submit → receive email → click link → land on `/dashboard` authenticated
+
+- [ ] **Story 4.4 — Dashboard + session list** (~1h)
+  - *Goal:* `/dashboard` page that fetches `GET /sessions` and renders a card per session with name, description, status, and "Open chat" link.
+  - *Files:* `apps/mars-control/frontend/app/dashboard/page.tsx`, `apps/mars-control/frontend/components/dashboard/SessionList.tsx`, `apps/mars-control/frontend/components/dashboard/SessionCard.tsx`
+  - *Done when:* deployed daemons from `mars deploy` appear on `/dashboard` with correct name + description
+
+- [ ] **Story 4.5 — Chat view + 4 message components + SSE client** (~3h)
+  - *Goal:* `/chat/[sessionId]` page with `ChatView` that subscribes to SSE and renders `AssistantText`, `ToolCall`, `ToolResult`, `PermissionRequest` components, plus user input POSTing to supervisor.
+  - *Files:* `apps/mars-control/frontend/app/chat/[sessionId]/page.tsx`, `apps/mars-control/frontend/components/chat/ChatView.tsx`, `apps/mars-control/frontend/components/chat/AssistantText.tsx`, `apps/mars-control/frontend/components/chat/ToolCall.tsx`, `apps/mars-control/frontend/components/chat/ToolResult.tsx`, `apps/mars-control/frontend/components/chat/PermissionRequest.tsx`
+  - *Done when:* live session streams events to browser in real time and user input round-trips through the daemon
 
 ## Notes
 

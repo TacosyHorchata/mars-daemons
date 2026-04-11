@@ -122,13 +122,29 @@ The plan agent's advice: **"Your threat model is narrow and honest: 'code you wr
 - [ ] Pedro declares "v1 shipped" out loud
 - [ ] No external launch announcement (deliberate)
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~4 stories:*
-- Story 9.1: `docs/security.md` — write the threat model
-- Story 9.2: PreToolUse hook refinement + env var audit + rate limiting
-- Story 9.3: Maat setup call prep + execution + notes
-- Story 9.4: v1.1 backlog capture + README update + ship declaration
+Total: **4 stories**, ~16h budget (spans 2 days: Day 12 security + hardening, Day 13 Maat call + ship).
+
+- [ ] **Story 9.1 — ★ `docs/security.md` — v1 threat model** (~4h)
+  - *Goal:* Explicit v1 threat model covering protected attacks, out-of-scope attacks, data handling (OAuth tokens, API keys, session history), and known limitations. Written BEFORE launch.
+  - *Files:* `docs/security.md`
+  - *Done when:* doc merged, 500+ words with no padding, adversarial reviewer finds no obvious gaps
+
+- [ ] **Story 9.2 — PreToolUse refinement + env audit + rate limit** (~4h)
+  - *Goal:* Refine `claude_code_settings.json` hooks based on dogfood learnings, audit env var exposure to subprocesses, add 5/min rate limit to magic-link endpoint.
+  - *Files:* `apps/mars-runtime/claude_code_settings.json`, `apps/mars-control/backend/src/auth/magic_link.py`
+  - *Done when:* manual attack-vector test in a deployed daemon shows all blocked AND env audit documented in security.md
+
+- [ ] **Story 9.3 — Maat setup call + notes** (~6h)
+  - *Goal:* 1-hour screen share with Maat: signup → onboarding → first daemon → first chat; capture raw reactions and fix same-day blockers.
+  - *Files:* `docs/maat-setup-notes.md`
+  - *Done when:* Maat sent 3+ messages to his daemon, got useful responses, and reactions are captured
+
+- [ ] **Story 9.4 — v1.1 backlog + README + ship declaration** (~2h)
+  - *Goal:* Categorize observations into P0/P1/P2, file GitHub issues tagged `v1.1-p0`, update README with v1 shipped note, tag `v1.0.0`.
+  - *Files:* `docs/v1.1-backlog.md`, `README.md`, `CHANGELOG.md`
+  - *Done when:* Pedro declares "Mars v1 is shipped" and git tag `v1.0.0` exists
 
 ## Notes
 

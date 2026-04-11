@@ -99,13 +99,29 @@ Both are solved by: (a) persisting a session handle to the volume, (b) reconcili
 - [ ] Reconcile works end-to-end with a real machine outage
 - [ ] Docstrings on recovery + reconcile logic (subtle code, future-you will thank you)
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~4 stories:*
-- Story 5.1: `SessionHandle` + atomic write + PID check
-- Story 5.2: Hard cap + per-session cwd + log tagging
-- Story 5.3: `supervisor_recovery.py` startup scan
-- Story 5.4: Control plane `reconcile.py` + UI status field
+Total: **4 stories**, ~8h budget. NEVER auto-resume — all recovery requires human click on "Resume".
+
+- [ ] **Story 5.1 — `SessionHandle` + atomic write + PID check** (~2h)
+  - *Goal:* `SessionHandle` dataclass with JSON serde, atomic writes via `.tmp` + fsync + rename, and PID liveness check via `os.kill(pid, 0)` plus cmdline verification.
+  - *Files:* `apps/mars-runtime/src/session/handle.py`
+  - *Done when:* handle survives partial-write crash and PID check distinguishes alive/dead processes
+
+- [ ] **Story 5.2 — Hard cap + per-session cwd + structured logging** (~2h)
+  - *Goal:* `SessionManager` enforces 3-session cap (429 on overflow), creates per-session `/workspace/<session-id>/` cwd, and binds `session_id` via `structlog` contextvars.
+  - *Files:* `apps/mars-runtime/src/session/manager.py`
+  - *Done when:* 4th session POST returns 429, session A cannot read session B's cwd, log lines carry `session_id=`
+
+- [ ] **Story 5.3 — ★ `supervisor_recovery.py` startup scan** (~2h)
+  - *Goal:* Supervisor startup scans `/workspace/*`, reads each `supervisor_handle.json`, marks dead-PID sessions as `needs_restart` (no auto-spawn), reattaches live PIDs after cmdline verification.
+  - *Files:* `apps/mars-runtime/src/supervisor_recovery.py`
+  - *Done when:* crash + restart with 3 running sessions → all 3 appear as `needs_restart` in control plane within 10s
+
+- [ ] **Story 5.4 — Control plane reconcile + UI status** (~2h)
+  - *Goal:* Control plane `reconcile.py` cross-checks machine sessions vs DB on reconnect + `SessionCard` shows `running` / `needs_restart` / `error` status with Resume button.
+  - *Files:* `apps/mars-control/backend/src/sessions/reconcile.py`, `apps/mars-control/backend/src/store/session.py`, `apps/mars-control/frontend/components/dashboard/SessionCard.tsx`
+  - *Done when:* clicking Resume on a `needs_restart` session spawns a new subprocess and the card flips to `running`
 
 ## Notes
 

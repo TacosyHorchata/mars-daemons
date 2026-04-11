@@ -92,15 +92,39 @@ Pedro chose parallel spikes (not a dedicated Day 0), so these run alongside repo
 - [ ] Decisions from spikes documented in `docs/decisions/`
 - [ ] Next session can clone repo, read README, and understand what to do next
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~5 stories:*
-- Story 0.1: Repo scaffold + README + CI
-- Story 0.2: `AgentConfig` Pydantic schema + 2 example files
-- Story 0.3: `mars init` CLI command
-- Story 0.4: Spike 1 (OAuth) — resolve or pivot
-- Story 0.5: Spike 2 (stream-json) — capture fixture
-- Story 0.6: Spike 3 (permissions) — resolve or pivot
+Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 2 are hard prerequisites for Epic 1.
+
+- [ ] **Story 0.1 — Repo scaffold + CI** (~1h)
+  - *Goal:* Monorepo layout (apps/, packages/, tests/, docs/, examples/, spikes/) with GitHub Actions CI running Python + Node checks on PR.
+  - *Files:* `.github/workflows/ci.yml`, `README.md`, `pyproject.toml`
+  - *Done when:* empty scaffold merged to main with CI green
+
+- [ ] **Story 0.2 — `AgentConfig` schema + 2 example files** (~2h)
+  - *Goal:* Pydantic `AgentConfig` with all v1 fields (`name`, `description`, `runtime`, `system_prompt_path`, `mcps`, `env`, `tools`, `workdir`) + two valid example agent.yaml files.
+  - *Files:* `apps/mars-control/backend/src/schema/agent.py`, `examples/pr-reviewer-agent.yaml`, `examples/orion-daemon.yaml`
+  - *Done when:* `AgentConfig.parse_file()` succeeds on both examples with unit test
+
+- [ ] **Story 0.3 — `mars init` CLI command** (~1h)
+  - *Goal:* CLI subcommand that scaffolds a starter agent.yaml in the current directory.
+  - *Files:* `packages/mars-cli/src/mars/__main__.py`, `packages/mars-cli/src/mars/init.py`
+  - *Done when:* `mars init` in an empty dir creates a valid agent.yaml parseable by `AgentConfig`
+
+- [ ] **Story 0.4 — ★ Spike 1: Claude Code headless OAuth** (~2h)
+  - *Goal:* Prove `claude setup-token` + `CLAUDE_CODE_OAUTH_TOKEN` runs Claude Code headlessly in a Docker container, OR commit a BYO-API-key pivot decision.
+  - *Files:* `spikes/01-claude-code-oauth.sh`, `docs/decisions/001-oauth-pivot.md`
+  - *Done when:* headless `claude -p` runs in a container OR pivot decision committed
+
+- [ ] **Story 0.5 — ★ Spike 2: stream-json schema capture** (~1h)
+  - *Goal:* Capture canonical Claude Code stream-json output as a test fixture for Epic 1's parser.
+  - *Files:* `spikes/02-stream-json-capture.sh`, `tests/contract/fixtures/stream_json_sample.jsonl`
+  - *Done when:* fixture contains one complete session with system_init → assistant → tool_call → tool_result → result events
+
+- [ ] **Story 0.6 — Spike 3: Permission round-trip** (~2h)
+  - *Goal:* Determine if Claude Code permission prompts can be intercepted + responded to programmatically, or confirm `--permission-mode acceptEdits` fallback.
+  - *Files:* `spikes/03-permission-roundtrip.md`
+  - *Done when:* working mechanism documented OR `acceptEdits` fallback decision committed
 
 ## Notes
 

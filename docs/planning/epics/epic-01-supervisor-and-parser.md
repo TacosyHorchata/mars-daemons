@@ -97,15 +97,39 @@ This epic is where v1 stops being hypothetical and starts being real engineering
 - [ ] Docstrings on every public class/function in `session/` and `events/types.py`
 - [ ] Next epic (Event Forwarding) can import `MarsEvent` and `SessionManager` cleanly
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~6 stories:*
-- Story 1.1: `MarsEvent` type hierarchy + durable/ephemeral classification
-- Story 1.2: `claude_code_stream.py` parser v1 (happy path)
-- Story 1.3: `claude_code_stream.py` parser v2 (edge cases + contract test)
-- Story 1.4: `SessionManager` + `claude_code.py` subprocess lifecycle
-- Story 1.5: `supervisor.py` FastAPI control API
-- Story 1.6: `permissions.py` round-trip (or fallback mode)
+Total: **6 stories**, ~14h budget. Contains the highest-risk file in the project (`claude_code_stream.py`) — Stories 1.2 and 1.3 are the most load-bearing in all of v1.
+
+- [ ] **Story 1.1 — `MarsEvent` type hierarchy** (~2h)
+  - *Goal:* Define `MarsEvent` base + subtypes (`AssistantText`, `ToolCall`, `ToolResult`, `PermissionRequest`, `TurnCompleted`, `SessionStarted`, `SessionEnded`) with durable/ephemeral split mirroring Camtom's `agent/events.py:18-111`.
+  - *Files:* `apps/mars-runtime/src/events/types.py`
+  - *Done when:* unit test classifies each event type correctly and a fixture event round-trips
+
+- [ ] **Story 1.2 — ★ `claude_code_stream.py` parser v1 (happy path)** (~3h)
+  - *Goal:* Async JSONL parser mapping stream-json `system_init`, `assistant`, `user` tool_result, and `result` events to `MarsEvent` subtypes via dispatch table.
+  - *Files:* `apps/mars-runtime/src/session/claude_code_stream.py`
+  - *Done when:* parser consumes the `stream_json_sample.jsonl` fixture and yields typed events without loss
+
+- [ ] **Story 1.3 — ★ Parser v2 + contract test** (~3h)
+  - *Goal:* Edge cases (partial messages, tool_result errors, unknown event types) + contract test that runs pinned `claude` CLI in CI and fails on schema drift.
+  - *Files:* `apps/mars-runtime/src/session/claude_code_stream.py`, `tests/contract/test_claude_code_stream.py`
+  - *Done when:* contract test passes against pinned Claude Code CLI version in CI
+
+- [ ] **Story 1.4 — `SessionManager` + subprocess lifecycle** (~3h)
+  - *Goal:* `SessionManager` owning the in-memory `active_sessions` dict + `claude_code.py` spawning/monitoring/killing subprocesses via `asyncio.create_subprocess_exec`.
+  - *Files:* `apps/mars-runtime/src/session/manager.py`, `apps/mars-runtime/src/session/claude_code.py`
+  - *Done when:* spawning + killing 10 sessions leaves zero zombie processes (asserted via `ps`)
+
+- [ ] **Story 1.5 — `supervisor.py` FastAPI control API** (~2h)
+  - *Goal:* FastAPI app exposing `POST/GET/DELETE /sessions`, `/sessions/{id}/input`, `/sessions/{id}/events` endpoints with in-memory event queue.
+  - *Files:* `apps/mars-runtime/src/supervisor.py`
+  - *Done when:* `curl POST /sessions -d @pr-reviewer-agent.yaml` returns a session_id and spawns a working subprocess
+
+- [ ] **Story 1.6 — `permissions.py` round-trip (or fallback)** (~1h)
+  - *Goal:* Permission prompt interception + `/sessions/{id}/permission-response` round-trip, with `acceptEdits` + denylist fallback if Spike 3 failed.
+  - *Files:* `apps/mars-runtime/src/session/permissions.py`
+  - *Done when:* a tool-approval prompt in a running session can be approved or denied via the supervisor API
 
 ## Notes
 

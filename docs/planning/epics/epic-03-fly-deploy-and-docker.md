@@ -94,14 +94,34 @@ Two spikes run during this epic: (4) validate machine can POST outbound to contr
 - [ ] `mars ssh` works
 - [ ] Both runtimes (Claude Code + Codex) can be spawned via the manager
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~5 stories:*
-- Story 3.1: `Dockerfile` + `start.sh` + local container test
-- Story 3.2: `claude_code_settings.json` PreToolUse hooks + manual verification
-- Story 3.3: `fly/client.py` Fly REST wrapper + unit tests
-- Story 3.4: `mars deploy` CLI end-to-end + `mars ssh` wrapper
-- Story 3.5: `codex.py` runtime + session manager dispatch + spikes 4+5
+Total: **5 stories**, ~16h budget (spans 2 days: Day 5 image/hooks, Day 6 deploy CLI + Codex + spikes).
+
+- [ ] **Story 3.1 — `Dockerfile` + `start.sh` + local container test** (~3h)
+  - *Goal:* Multi-stage Dockerfile for mars-runtime with pinned Claude Code CLI, non-root user, image <500MB, and container entrypoint script handling graceful shutdown.
+  - *Files:* `apps/mars-runtime/Dockerfile`, `apps/mars-runtime/start.sh`
+  - *Done when:* `docker run` with `CLAUDE_CODE_OAUTH_TOKEN` env var spawns a working daemon via the control API
+
+- [ ] **Story 3.2 — ★ `claude_code_settings.json` PreToolUse hooks** (~2h)
+  - *Goal:* Bake `claude_code_settings.json` into the image with PreToolUse hooks blocking Edit/Write on CLAUDE.md/AGENTS.md and `bash env|printenv|echo \$` patterns — this file IS the security model.
+  - *Files:* `apps/mars-runtime/claude_code_settings.json`
+  - *Done when:* in a local container, agent attempts to edit CLAUDE.md AND `echo $TOKEN` are both blocked
+
+- [ ] **Story 3.3 — `fly/client.py` Fly REST wrapper** (~3h)
+  - *Goal:* Async `httpx` wrapper around Fly.io REST API exposing `create_app`, `create_machine`, `set_secrets`, `destroy_machine`, `list_machines`.
+  - *Files:* `apps/mars-control/backend/src/fly/client.py`
+  - *Done when:* unit tests cover all 5 methods against mocked Fly API responses
+
+- [ ] **Story 3.4 — `mars deploy` CLI + `mars ssh` wrapper** (~4h)
+  - *Goal:* `mars deploy ./agent.yaml` end-to-end (parse → ensure app → launch machine → inject secrets → POST config → return URL) + `mars ssh <agent>` wrapping `flyctl ssh console`.
+  - *Files:* `packages/mars-cli/src/mars/deploy.py`, `packages/mars-cli/src/mars/ssh.py`
+  - *Done when:* `mars deploy examples/pr-reviewer-agent.yaml` returns a working chat URL for a live Fly machine
+
+- [ ] **Story 3.5 — Codex runtime + spikes 4 & 5** (~4h)
+  - *Goal:* `codex.py` subprocess lifecycle mirroring `claude_code.py`, session manager dispatch by runtime field, outbound HTTP reachability spike + cold boot timing measurement.
+  - *Files:* `apps/mars-runtime/src/session/codex.py`, `apps/mars-runtime/src/session/manager.py`, `docs/decisions/002-cold-boot-timing.md`
+  - *Done when:* `runtime: codex` in agent.yaml spawns a Codex subprocess end-to-end AND cold boot time is recorded in the decision doc
 
 ## Notes
 

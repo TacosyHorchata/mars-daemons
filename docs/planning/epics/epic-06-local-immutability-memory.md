@@ -114,14 +114,34 @@ The plan agent's key insight on immutability: **the filesystem read-only mount i
 - [ ] Memory bundle exportable and inspectable
 - [ ] Admin edit flow works end-to-end (web UI + CLI)
 
-## Stories (to be decomposed next cycle)
+## Stories
 
-*Placeholder — next session will break this into ~5 stories:*
-- Story 6.1: `runtime_local.py` local mode runner
-- Story 6.2: `memory/capture.py` session history + tool log collection
-- Story 6.3: `memory/sync.py` S3 periodic sync + `mars memory export`
-- Story 6.4: CLAUDE.md admin edit flow (backend PATCH + supervisor reload)
-- Story 6.5: `PromptEditor.tsx` web UI + `mars edit-prompt` CLI
+Total: **5 stories**, ~8h budget. Three related subsystems (local mode + immutability + memory) shipped in one day.
+
+- [ ] **Story 6.1 — `runtime_local.py` local mode runner** (~2h)
+  - *Goal:* `mars run --local ./agent.yaml` spawns a local `claude` subprocess using shared `claude_code.py` + `claude_code_stream.py` with terminal I/O, zero control plane dependencies.
+  - *Files:* `packages/mars-cli/src/mars/runtime_local.py`, `packages/mars-cli/src/mars/__main__.py`
+  - *Done when:* same agent.yaml works with `mars run --local` on Pedro's laptop
+
+- [ ] **Story 6.2 — `memory/capture.py` session + tool log collection** (~2h)
+  - *Goal:* Per-session collector writing `session_history.jsonl`, `tool_calls.jsonl`, `claude_md_proposals.jsonl` into `/workspace/<session-id>/memory/` from the event stream; proposals captured but NEVER applied.
+  - *Files:* `apps/mars-runtime/src/memory/capture.py`
+  - *Done when:* after a session, memory dir contains all three JSONL files with matching event counts
+
+- [ ] **Story 6.3 — `memory/sync.py` S3 sync + `mars memory export`** (~1h)
+  - *Goal:* Periodic (5min) tarball S3 sync to `s3://<bucket>/<workspace>/<agent>/<session>/<ts>.tar.gz` + CLI command to download latest bundle.
+  - *Files:* `apps/mars-runtime/src/memory/sync.py`, `packages/mars-cli/src/mars/memory.py`
+  - *Done when:* `mars memory export pr-reviewer` downloads a valid tarball from S3
+
+- [ ] **Story 6.4 — ★ CLAUDE.md admin edit flow (backend + supervisor reload)** (~2h)
+  - *Goal:* Backend `PATCH /agents/{name}/prompt` pushes new CLAUDE.md to machine; supervisor `POST /sessions/{id}/reload-prompt` restarts subprocess with new prompt atomically.
+  - *Files:* `apps/mars-control/backend/src/api/routes.py`, `apps/mars-runtime/src/supervisor.py`
+  - *Done when:* admin edits prompt → session restarts within 5s with new CLAUDE.md, agent edit attempts still blocked by PreToolUse hook
+
+- [ ] **Story 6.5 — `PromptEditor.tsx` web UI + `mars edit-prompt` CLI** (~1h)
+  - *Goal:* Web textarea editor with "Save and restart" button + CLI command that opens `$EDITOR` on the current CLAUDE.md contents.
+  - *Files:* `apps/mars-control/frontend/components/dashboard/PromptEditor.tsx`, `packages/mars-cli/src/mars/edit_prompt.py`
+  - *Done when:* both web UI save and `mars edit-prompt` trigger session restart with the new prompt
 
 ## Notes
 

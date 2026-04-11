@@ -35,6 +35,7 @@ from mars_control.auth.magic_link import (
     MagicLinkToken,
 )
 from mars_control.auth.middleware import make_current_user_dependency
+from mars_control.auth.rate_limit import RateLimiter
 from mars_control.auth.session import (
     DEFAULT_SESSION_COOKIE_NAME,
     SessionCookieService,
@@ -89,6 +90,7 @@ def create_control_app(
     session_service: SessionCookieService | None = None,
     email_sender: EmailSender | None = None,
     magic_link_base_url: str | None = None,
+    magic_link_rate_limiter: RateLimiter | None = None,
 ) -> FastAPI:
     """Build a FastAPI app for the Mars control plane.
 
@@ -149,6 +151,9 @@ def create_control_app(
         if magic_link_base_url is not None
         else os.environ.get("MARS_MAGIC_LINK_BASE_URL", "")
     )
+    # Story 9.2: per-IP rate limit on POST /auth/magic-link. Defaults
+    # to 5 req/min/IP when the caller doesn't inject one.
+    effective_rate_limiter = magic_link_rate_limiter or RateLimiter()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -201,8 +206,24 @@ def create_control_app(
     @app.post("/auth/magic-link", status_code=status.HTTP_202_ACCEPTED)
     async def request_magic_link(
         payload: MagicLinkRequestPayload,
+        request: Request,
     ) -> dict[str, str]:
         magic, _, sender = _require_auth_stack()
+        client_ip = (
+            request.client.host if request.client is not None else "unknown"
+        )
+        if not effective_rate_limiter.check(client_ip):
+            retry_after = int(
+                effective_rate_limiter.retry_after_seconds(client_ip) + 1
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"too many magic-link requests from {client_ip} — "
+                    f"retry in {retry_after}s"
+                ),
+                headers={"Retry-After": str(retry_after)},
+            )
         token = magic.issue(payload.email)
         link_base = effective_ml_base or ""
         link = (

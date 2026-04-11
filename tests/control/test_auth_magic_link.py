@@ -93,8 +93,11 @@ def test_magic_link_invalid_signature_rejected():
 def test_magic_link_tampered_token_rejected():
     svc = MagicLinkService(secret=MAGIC_SECRET)
     token = svc.issue("pedro@example.com")
-    # Flip the last char to corrupt the signature
-    bad = token[:-1] + ("a" if token[-1] != "a" else "b")
+    # Splice the middle of the signature so the tampered bytes
+    # definitely do not happen to validate.
+    header, payload, signature = token.split(".")
+    bad_sig = signature[::-1]  # reverse; vanishingly unlikely to verify
+    bad = f"{header}.{payload}.{bad_sig}"
     with pytest.raises(MagicLinkError):
         svc.verify(bad)
 
@@ -397,3 +400,57 @@ def test_invalid_email_format_returns_422(auth_app):
     with TestClient(app) as c:
         resp = c.post("/auth/magic-link", json={"email": "not-an-email"})
         assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Story 9.2 — rate limit on /auth/magic-link
+# ---------------------------------------------------------------------------
+
+
+def test_magic_link_rate_limit_returns_429_over_cap():
+    """Per-IP rate limit: burst past the configured cap returns 429
+    with a Retry-After header. Only the first N emails go out."""
+    from mars_control.auth.rate_limit import RateLimiter
+
+    store = EventStore(":memory:")
+    store.init()
+    magic = MagicLinkService(secret=MAGIC_SECRET)
+    sess = SessionCookieService(secret=SESSION_SECRET, cookie_secure=False)
+    sender = InMemoryEmailSender()
+    # Tight cap for testing: 2 requests per 60s
+    limiter = RateLimiter(max_requests=2, window_seconds=60.0)
+    app = create_control_app(
+        store=store,
+        event_secret="ingest-secret",
+        magic_link_service=magic,
+        session_service=sess,
+        email_sender=sender,
+        magic_link_rate_limiter=limiter,
+    )
+    with TestClient(app) as c:
+        r1 = c.post("/auth/magic-link", json={"email": "a@example.com"})
+        r2 = c.post("/auth/magic-link", json={"email": "b@example.com"})
+        r3 = c.post("/auth/magic-link", json={"email": "c@example.com"})
+    assert r1.status_code == 202
+    assert r2.status_code == 202
+    assert r3.status_code == 429
+    assert "too many magic-link requests" in r3.json()["detail"]
+    assert "Retry-After" in r3.headers
+    assert int(r3.headers["Retry-After"]) >= 1
+
+    # Only the first two emails went out
+    assert len(sender.outbox) == 2
+
+
+def test_magic_link_rate_limit_default_is_5_per_minute(auth_app):
+    """The default limiter allows 5 requests and rejects the 6th."""
+    app, sender, _, _ = auth_app
+    with TestClient(app) as c:
+        # 5 accepted
+        for i in range(5):
+            r = c.post("/auth/magic-link", json={"email": f"u{i}@example.com"})
+            assert r.status_code == 202, f"request {i} rejected: {r.text}"
+        # 6th over cap
+        r6 = c.post("/auth/magic-link", json={"email": "six@example.com"})
+        assert r6.status_code == 429
+    assert len(sender.outbox) == 5

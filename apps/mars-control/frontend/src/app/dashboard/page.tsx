@@ -29,6 +29,7 @@ import {
   TemplateSummary,
 } from "@/lib/api";
 import { SessionCard } from "@/components/dashboard/SessionCard";
+import { OnboardingWizard } from "@/components/templates/OnboardingWizard";
 import { TemplateList } from "@/components/templates/TemplateList";
 
 type PageState =
@@ -43,6 +44,9 @@ export default function DashboardPage() {
   const router = useRouter();
   const [state, setState] = useState<PageState>({ kind: "loading" });
   const [tab, setTab] = useState<Tab>("sessions");
+  const [wizardTemplate, setWizardTemplate] = useState<TemplateSummary | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -78,12 +82,8 @@ export default function DashboardPage() {
   }, [router]);
 
   function onStartTemplate(template: TemplateSummary) {
-    // Story 8.3 wires this to the OnboardingWizard. For now, log
-    // so the click is visible during local E2E testing.
-    console.info("[dashboard] start template:", template.name);
-    alert(
-      `Onboarding wizard coming in Story 8.3. Selected: ${template.name}`,
-    );
+    // Story 8.3 wires this to the OnboardingWizard modal.
+    setWizardTemplate(template);
   }
 
   if (state.kind === "loading") {
@@ -175,6 +175,11 @@ export default function DashboardPage() {
 
         {tab === "templates" && <TemplateList onStart={onStartTemplate} />}
       </div>
+
+      <OnboardingWizard
+        template={wizardTemplate}
+        onClose={() => setWizardTemplate(null)}
+      />
     </div>
   );
 }

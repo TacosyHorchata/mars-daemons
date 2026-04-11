@@ -58,7 +58,7 @@
 | 1 | [ ] [Supervisor & stream-json Parser](epic-01-supervisor-and-parser.md) | 2–3 | **CRITICAL** | 6 | 0 | `mars-runtime` supervisor skeleton + the JSONL parser that translates Claude Code output into Mars events. Highest-risk file in project. |
 | 2 | [ ] [Event Forwarding & SSE Topology](epic-02-event-forwarding-and-sse.md) | 4 | MEDIUM | 4 | 1 | Machine POSTs events outbound to control plane via `HttpEventSink`. Control plane holds browser SSE fanout. Single SSE hop. |
 | 3 | [ ] [Fly Deploy & Dockerization](epic-03-fly-deploy-and-docker.md) | 5–6 | MEDIUM | 5 | 1, 2 | `mars-runtime` Dockerfile, `claude_code_settings.json` security hooks, `mars deploy` CLI, `mars ssh` wrapper, Fly.io REST client. |
-| 4 | [ ] [Web UI & Magic-Link Auth](epic-04-web-ui-and-auth.md) | 7 | MEDIUM | 5 | 2 | Next.js dashboard, chat UI with 4 component types, session list, magic-link signup via Resend, JWT cookie. |
+| 4 | [X] [Web UI & Magic-Link Auth](epic-04-web-ui-and-auth.md) | 7 | MEDIUM | 5 | 2 | Next.js dashboard, chat UI with 4 component types, session list, magic-link signup via Resend, JWT cookie. |
 | 5 | [ ] [Multi-Session & Crash Recovery](epic-05-multi-session-and-recovery.md) | 8 | MEDIUM | 4 | 1, 3 | Concurrent sessions per VM, volume-based recovery on supervisor restart, control plane reconciliation, hard cap 3/VM. |
 | 6 | [ ] [Local Mode, Immutability, Memory](epic-06-local-immutability-memory.md) | 9 | MEDIUM | 5 | 1 | `mars run --local`, CLAUDE.md admin-only editing with supervisor restart, per-session memory capture with S3 sync. |
 | 7 | [ ] [Developer Dogfood (Pedro)](epic-07-dev-dogfood.md) | 10 | LOW | 3 | 1–6 | Pedro deploys `pr-reviewer-agent.yaml` on `epic/agents-v2`. End-to-end smoke tests 1–7. Bug fixes. |
@@ -69,7 +69,7 @@
 
 - Total epics: 10
 - Total stories: 47
-- Done: 31
+- Done: 35
 - In progress: 0
 - Blocked: 0
 

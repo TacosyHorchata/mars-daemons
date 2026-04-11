@@ -132,6 +132,31 @@ export async function sendChatInput(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Templates (Story 8.2)
+// ---------------------------------------------------------------------------
+
+export interface TemplateSummary {
+  name: string;
+  description: string;
+  runtime: string;
+  mcps: string[];
+  system_prompt_preview: string;
+}
+
+/**
+ * List templates from the control plane's GET /templates endpoint.
+ *
+ * Templates are pre-baked ``agent.yaml`` files shipped with the
+ * control plane (``apps/mars-control/templates/``). v1 ships exactly
+ * one — ``tracker-ops-assistant`` — with a Spanish system prompt
+ * tuned for Orion's vertical.
+ */
+export async function listTemplates(): Promise<TemplateSummary[]> {
+  const data = await request<{ templates: TemplateSummary[] }>("/templates");
+  return data.templates ?? [];
+}
+
 export async function updateAgentPrompt(
   agentName: string,
   sessionId: string,

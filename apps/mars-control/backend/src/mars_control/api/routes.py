@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator, Callable
 
 import httpx
@@ -45,6 +46,7 @@ from mars_control.auth.session import (
 from mars_control.events.ingest import create_ingest_router
 from mars_control.sse.stream import SSEEventSink, sse_event_generator
 from mars_control.store.events import EventStore
+from mars_control.templates import DEFAULT_TEMPLATE_DIR, discover_templates
 
 __all__ = [
     "MagicLinkRequestPayload",
@@ -100,6 +102,7 @@ def create_control_app(
     magic_link_rate_limiter: RateLimiter | None = None,
     default_supervisor_url: str | None = None,
     cors_allow_origins: list[str] | None = None,
+    template_dir: Path | None = None,
 ) -> FastAPI:
     """Build a FastAPI app for the Mars control plane.
 
@@ -189,6 +192,17 @@ def create_control_app(
             for o in os.environ.get("MARS_CORS_ORIGINS", "").split(",")
             if o.strip()
         ]
+    )
+
+    # Story 8.2 — template discovery directory. Tests inject a tmp
+    # path; production uses the repo-relative templates/ folder.
+    effective_template_dir: Path = (
+        Path(template_dir)
+        if template_dir is not None
+        else Path(
+            os.environ.get("MARS_TEMPLATE_DIR", "")
+            or DEFAULT_TEMPLATE_DIR
+        )
     )
 
     @asynccontextmanager
@@ -404,6 +418,16 @@ def create_control_app(
             "supervisor": supervisor_url,
             "result": resp.json() if resp.content else {},
         }
+
+    # ------------------------------------------------------------------
+    # Template discovery (Story 8.2)
+    # ------------------------------------------------------------------
+    @app.get("/templates")
+    async def list_templates(
+        _user: SessionUser = Depends(_require_current_user),
+    ) -> dict[str, object]:
+        summaries = discover_templates(effective_template_dir)
+        return {"templates": [s.to_dict() for s in summaries]}
 
     # ------------------------------------------------------------------
     # Session proxy — v1 forwards to MARS_DEFAULT_SUPERVISOR_URL so the

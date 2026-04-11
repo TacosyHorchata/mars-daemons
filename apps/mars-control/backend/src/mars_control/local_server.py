@@ -27,6 +27,7 @@ when you need to point at a different supervisor or frontend origin.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 from fastapi import FastAPI
@@ -42,9 +43,39 @@ _LOCAL_MAGIC_LINK_SECRET = "local-dev-magic-link-secret-do-not-use-in-prod"
 _LOCAL_SESSION_SECRET = "local-dev-session-secret-do-not-use-in-prod-ever"
 _LOCAL_EVENT_SECRET = "local-dev-event-secret"
 
+_PROD_MARKERS = ("MARS_ENV", "FLY_APP_NAME", "FLY_REGION", "FLY_MACHINE_ID")
+
+
+def _refuse_if_prod_environment() -> None:
+    """Abort if this module is imported from anything that looks
+    like a production environment. Codex flagged the hardcoded
+    secrets + /dev/outbox as a real footgun; we want any accidental
+    ``uvicorn mars_control.local_server`` on Fly to crash loud rather
+    than serve magic links to the public internet.
+    """
+    tripped = [name for name in _PROD_MARKERS if os.environ.get(name)]
+    if tripped:
+        raise RuntimeError(
+            "mars_control.local_server is dev-only and refuses to run in "
+            "environments that look like production (found env vars: "
+            f"{', '.join(tripped)}). Use mars_control.api.routes.create_control_app "
+            "directly with production-provisioned secrets."
+        )
+
 
 def create_local_app() -> FastAPI:
     """Build a control-plane FastAPI app wired for local Fly emulation."""
+    _refuse_if_prod_environment()
+    print(
+        "\n"
+        "============================================================\n"
+        "  mars-control LOCAL DEV SERVER — hardcoded dev secrets,\n"
+        "  InMemoryEmailSender, cookie_secure=False, /dev/outbox open.\n"
+        "  NEVER bind this to a non-loopback interface.\n"
+        "============================================================\n",
+        file=sys.stderr,
+        flush=True,
+    )
     outbox = InMemoryEmailSender()
     magic = MagicLinkService(secret=_LOCAL_MAGIC_LINK_SECRET)
     session = SessionCookieService(

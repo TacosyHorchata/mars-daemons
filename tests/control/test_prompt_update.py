@@ -15,10 +15,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mars_control.api.routes import create_control_app
+from mars_control.auth.session import SessionCookieService
 from mars_control.sse.stream import SSEEventSink
 from mars_control.store.events import EventStore
 
 SECRET = "prompt-update-secret"
+SESSION_SECRET = "test-session-secret-at-least-32-bytes-long-ok"
+TEST_EMAIL = "tester@example.com"
 
 
 def _make_app(
@@ -27,7 +30,12 @@ def _make_app(
     locator=None,
 ) -> tuple[TestClient, list[dict]]:
     """Build a control-plane app wired to a MockTransport-backed
-    httpx client. ``handler`` intercepts forwarded supervisor calls."""
+    httpx client. ``handler`` intercepts forwarded supervisor calls.
+
+    The PATCH endpoint requires auth (codex-flagged regression fix),
+    so we inject a :class:`SessionCookieService` and mint a cookie
+    for the test user.
+    """
     captured: list[dict] = []
 
     def _wrapped_handler(request: httpx.Request) -> httpx.Response:
@@ -42,6 +50,10 @@ def _make_app(
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(_wrapped_handler))
 
+    session_service = SessionCookieService(
+        secret=SESSION_SECRET, cookie_secure=False
+    )
+
     store = EventStore(":memory:")
     store.init()
     app = create_control_app(
@@ -50,8 +62,12 @@ def _make_app(
         sink=SSEEventSink(),
         session_locator=locator,
         http_client=http,
+        session_service=session_service,
     )
     client = TestClient(app)
+    client.cookies.set(
+        session_service.cookie_name, session_service.issue(TEST_EMAIL)
+    )
     return client, captured
 
 
@@ -194,3 +210,20 @@ def test_patch_prompt_rejects_missing_session_id():
             json={"content": "hi"},
         )
     assert resp.status_code == 422
+
+
+def test_patch_prompt_401_without_session_cookie():
+    """Codex flagged the admin-edit flow as unauthenticated in the
+    pre-session-proxy commit. The endpoint now requires a valid
+    session cookie; verify an anonymous request 401s."""
+    client, _ = _make_app(
+        handler=lambda r: httpx.Response(200, json={}),
+        locator=lambda *_: "http://10.0.0.1:8080",
+    )
+    client.cookies.clear()
+    with client:
+        resp = client.patch(
+            "/agents/x/prompt",
+            json={"session_id": "s-1", "content": "hi"},
+        )
+    assert resp.status_code == 401

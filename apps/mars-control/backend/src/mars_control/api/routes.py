@@ -211,6 +211,17 @@ def create_control_app(
     app.state.sse_sink = effective_sink
 
     if effective_cors_origins:
+        # Codex caught this: `allow_credentials=True` is only safe with
+        # a tight, explicit list of origins. Reject `*` and the empty
+        # string at factory time so a mis-set MARS_CORS_ORIGINS env var
+        # cannot silently open cookie-carrying cross-origin requests.
+        for origin in effective_cors_origins:
+            if origin == "*" or not origin:
+                raise ValueError(
+                    "cors_allow_origins must be an explicit list of HTTP origins "
+                    "when credentials are forwarded — '*' and empty strings are "
+                    "rejected"
+                )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=effective_cors_origins,
@@ -218,6 +229,21 @@ def create_control_app(
             allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=["*"],
         )
+
+    # Protected-route dependency. When the session service is not
+    # configured (headless tests, ingest-only deploys) we raise 503
+    # rather than silently letting unauth'd traffic through — codex
+    # flagged the unauthed proxy endpoints as a critical regression.
+    def _require_current_user(request: Request) -> SessionUser:
+        if effective_session_service is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "auth not configured on the control plane: missing "
+                    "session cookie service"
+                ),
+            )
+        return make_current_user_dependency(effective_session_service)(request)
 
     app.include_router(
         create_ingest_router(effective_store, effective_secret, effective_sink)
@@ -330,7 +356,9 @@ def create_control_app(
 
     @app.patch("/agents/{agent_name}/prompt")
     async def update_agent_prompt(
-        agent_name: str, payload: PromptUpdatePayload
+        agent_name: str,
+        payload: PromptUpdatePayload,
+        _user: SessionUser = Depends(_require_current_user),
     ) -> dict[str, object]:
         """Admin edit flow (Story 6.4).
 
@@ -396,7 +424,9 @@ def create_control_app(
         return effective_default_supervisor
 
     @app.get("/sessions")
-    async def list_sessions_proxy() -> dict[str, object]:
+    async def list_sessions_proxy(
+        _user: SessionUser = Depends(_require_current_user),
+    ) -> dict[str, object]:
         supervisor = _require_default_supervisor()
         target = f"{supervisor.rstrip('/')}/sessions"
         try:
@@ -415,7 +445,9 @@ def create_control_app(
 
     @app.post("/sessions/{session_id}/input")
     async def session_input_proxy(
-        session_id: str, payload: SessionInputPayload
+        session_id: str,
+        payload: SessionInputPayload,
+        _user: SessionUser = Depends(_require_current_user),
     ) -> dict[str, object]:
         supervisor = _require_default_supervisor()
         target = f"{supervisor.rstrip('/')}/sessions/{session_id}/input"
@@ -426,11 +458,31 @@ def create_control_app(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"supervisor unreachable at {target}: {exc}",
             ) from exc
-        if resp.status_code >= 400:
+        if resp.status_code >= 500:
+            # Mask upstream 5xx as 502 so the browser can distinguish
+            # "bad request from you" (upstream 4xx) from "runtime sad"
+            # (our 502). Body is truncated to keep error payloads small.
             raise HTTPException(
-                status_code=resp.status_code,
-                detail=f"supervisor: {resp.text[:500]}",
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"supervisor {resp.status_code}: {resp.text[:500]}",
             )
+        if resp.status_code >= 400:
+            # Preserve upstream 4xx body + selected headers so the
+            # browser sees structured errors (e.g. supervisor's 410
+            # "session stdin closed" or 429 cap-reached + Retry-After).
+            # Codex flagged that the original "status-only passthrough"
+            # was dropping browser-actionable semantics.
+            passthrough_headers: dict[str, str] = {}
+            for h in ("retry-after", "www-authenticate"):
+                value = resp.headers.get(h)
+                if value is not None:
+                    passthrough_headers[h.title()] = value
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type=resp.headers.get("content-type", "application/json"),
+                headers=passthrough_headers or None,
+            )  # type: ignore[return-value]
         return resp.json()
 
     @app.get("/sessions/{session_id}/stream")

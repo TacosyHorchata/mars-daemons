@@ -7,9 +7,13 @@ default supervisor (pointed at by ``default_supervisor_url`` or the
 * ``GET  /sessions``                         → supervisor ``/sessions``
 * ``POST /sessions/{session_id}/input``      → supervisor ``/sessions/{id}/input``
 
-These are the hooks the browser dashboard + chat view call when no
-session registry exists yet (Epic 5). The tests use httpx MockTransport
-to intercept the outbound call and assert on the forwarded request.
+Both routes require a valid session cookie — they sit behind
+``_require_current_user``. Tests inject a :class:`SessionCookieService`
+with a dev secret and mint a cookie for a test user so the
+TestClient forwards it automatically.
+
+The tests use httpx MockTransport to intercept the outbound call to
+the supervisor and assert on the forwarded request.
 """
 
 from __future__ import annotations
@@ -22,11 +26,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mars_control.api.routes import create_control_app
+from mars_control.auth.session import SessionCookieService
 from mars_control.sse.stream import SSEEventSink
 from mars_control.store.events import EventStore
 
 SUPERVISOR = "http://runtime-local:8090"
 SECRET = "test-event-secret"
+SESSION_SECRET = "test-session-secret-at-least-32-bytes-long-ok"
+TEST_EMAIL = "tester@example.com"
+
+
+def _build_session_service() -> SessionCookieService:
+    return SessionCookieService(
+        secret=SESSION_SECRET,
+        cookie_secure=False,
+    )
 
 
 def _make_app(
@@ -34,6 +48,8 @@ def _make_app(
     handler: Callable[[httpx.Request], httpx.Response] | None,
     default_supervisor_url: str | None = SUPERVISOR,
     cors_allow_origins: list[str] | None = None,
+    session_service: SessionCookieService | None = None,
+    skip_auth_service: bool = False,
 ) -> tuple[TestClient, list[dict]]:
     captured: list[dict] = []
 
@@ -54,6 +70,10 @@ def _make_app(
         else httpx.AsyncClient()
     )
 
+    effective_session_service = (
+        None if skip_auth_service else (session_service or _build_session_service())
+    )
+
     store = EventStore(":memory:")
     store.init()
     app = create_control_app(
@@ -63,8 +83,13 @@ def _make_app(
         http_client=http,
         default_supervisor_url=default_supervisor_url,
         cors_allow_origins=cors_allow_origins,
+        session_service=effective_session_service,
     )
-    return TestClient(app), captured
+    client = TestClient(app)
+    if effective_session_service is not None:
+        cookie_value = effective_session_service.issue(TEST_EMAIL)
+        client.cookies.set(effective_session_service.cookie_name, cookie_value)
+    return client, captured
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +125,29 @@ def test_list_sessions_503_when_no_default_supervisor() -> None:
     assert resp.status_code == 503
     body = resp.json()
     assert "MARS_DEFAULT_SUPERVISOR_URL" in body["detail"]
+
+
+def test_list_sessions_401_without_session_cookie() -> None:
+    client, _ = _make_app(
+        handler=lambda _req: httpx.Response(200, json={"sessions": []}),
+    )
+    client.cookies.clear()
+    resp = client.get("/sessions")
+    assert resp.status_code == 401
+
+
+def test_list_sessions_503_when_auth_service_unconfigured() -> None:
+    """If the control plane has no session service injected the proxy
+    endpoints short-circuit with 503 instead of silently letting
+    anonymous traffic through. Codex caught this as a critical
+    regression in the first pass."""
+    client, _ = _make_app(
+        handler=lambda _req: httpx.Response(200, json={"sessions": []}),
+        skip_auth_service=True,
+    )
+    resp = client.get("/sessions")
+    assert resp.status_code == 503
+    assert "session cookie service" in resp.json()["detail"]
 
 
 def test_list_sessions_502_on_supervisor_network_error() -> None:
@@ -156,17 +204,40 @@ def test_session_input_503_when_no_default_supervisor() -> None:
     assert resp.status_code == 503
 
 
-def test_session_input_propagates_supervisor_error_status() -> None:
+def test_session_input_401_without_session_cookie() -> None:
+    client, _ = _make_app(
+        handler=lambda _req: httpx.Response(200, json={"ok": True})
+    )
+    client.cookies.clear()
+    resp = client.post("/sessions/s-1/input", json={"text": "hi"})
+    assert resp.status_code == 401
+
+
+def test_session_input_preserves_4xx_body_and_retry_after() -> None:
     client, _ = _make_app(
         handler=lambda _req: httpx.Response(
-            410, text="session stdin closed"
+            410,
+            json={"detail": "session stdin closed"},
+            headers={"Retry-After": "30"},
         )
     )
     resp = client.post("/sessions/s-1/input", json={"text": "hi"})
-    # Supervisor's 410 comes through as-is (unlike /sessions which masks
-    # with 502) — this is the right call because 410 is a meaningful
-    # signal to the browser: the daemon exited, stop trying to chat.
+    # Supervisor's 410 body and Retry-After header come through intact
+    # so the browser can render a meaningful error and back off the
+    # right amount of time.
     assert resp.status_code == 410
+    assert resp.json() == {"detail": "session stdin closed"}
+    assert resp.headers.get("retry-after") == "30"
+
+
+def test_session_input_masks_5xx_as_502() -> None:
+    client, _ = _make_app(
+        handler=lambda _req: httpx.Response(500, text="runtime boom")
+    )
+    resp = client.post("/sessions/s-1/input", json={"text": "hi"})
+    assert resp.status_code == 502
+    assert "500" in resp.json()["detail"]
+    assert "runtime boom" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

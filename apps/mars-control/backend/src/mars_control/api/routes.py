@@ -46,7 +46,11 @@ from mars_control.auth.session import (
 from mars_control.events.ingest import create_ingest_router
 from mars_control.sse.stream import SSEEventSink, sse_event_generator
 from mars_control.store.events import EventStore
-from mars_control.templates import DEFAULT_TEMPLATE_DIR, discover_templates
+from mars_control.templates import (
+    DEFAULT_TEMPLATE_DIR,
+    TemplateDirMissingError,
+    discover_templates,
+)
 
 __all__ = [
     "MagicLinkRequestPayload",
@@ -426,7 +430,17 @@ def create_control_app(
     async def list_templates(
         _user: SessionUser = Depends(_require_current_user),
     ) -> dict[str, object]:
-        summaries = discover_templates(effective_template_dir)
+        try:
+            summaries = discover_templates(effective_template_dir)
+        except TemplateDirMissingError as exc:
+            # Codex review — previously this silently returned an
+            # empty list when MARS_TEMPLATE_DIR pointed at a
+            # nonexistent path. Now we fail loud with 500 so a
+            # misconfigured deploy surfaces immediately.
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(exc),
+            ) from exc
         return {"templates": [s.to_dict() for s in summaries]}
 
     # ------------------------------------------------------------------

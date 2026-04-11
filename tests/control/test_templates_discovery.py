@@ -19,6 +19,8 @@ from mars_control.sse.stream import SSEEventSink
 from mars_control.store.events import EventStore
 from mars_control.templates import (
     DEFAULT_TEMPLATE_DIR,
+    MissingPromptError,
+    TemplateDirMissingError,
     TemplateSummary,
     discover_templates,
     load_template,
@@ -108,8 +110,13 @@ def test_discover_templates_returns_valid_entries(tmp_template_dir: Path) -> Non
     assert "Eres un agente de prueba" in summary.system_prompt_preview
 
 
-def test_discover_templates_returns_empty_for_missing_dir(tmp_path: Path) -> None:
-    assert discover_templates(tmp_path / "nope") == []
+def test_discover_templates_raises_on_missing_dir(tmp_path: Path) -> None:
+    """Codex review — previously this returned an empty list which
+    silently hid a misconfigured MARS_TEMPLATE_DIR. Now it raises
+    TemplateDirMissingError so the failure is loud."""
+    with pytest.raises(TemplateDirMissingError) as exc_info:
+        discover_templates(tmp_path / "nope")
+    assert "MARS_TEMPLATE_DIR" in str(exc_info.value)
 
 
 def test_discover_templates_skips_broken_yaml(tmp_template_dir: Path) -> None:
@@ -122,14 +129,81 @@ def test_discover_templates_skips_broken_yaml(tmp_template_dir: Path) -> None:
     assert [r.name for r in results] == ["demo-agent"]
 
 
+def test_discover_templates_skips_template_with_missing_prompt(
+    tmp_path: Path,
+) -> None:
+    """Codex review — a template YAML with no sibling .prompt.md
+    cannot be deployed, so we refuse to advertise it on the
+    dashboard. Logged as WARNING and skipped."""
+    d = tmp_path / "templates"
+    d.mkdir()
+    (d / "no-prompt.yaml").write_text(
+        VALID_YAML.replace("demo-agent", "no-prompt").replace(
+            "demo.prompt.md", "no-prompt.prompt.md"
+        ),
+        encoding="utf-8",
+    )
+    # Note: no sibling no-prompt.prompt.md file created.
+    assert discover_templates(d) == []
+
+
+def test_load_template_raises_missing_prompt_error(tmp_path: Path) -> None:
+    """Explicit unit-level: load_template() surfaces MissingPromptError
+    directly so callers can distinguish schema-invalid from
+    prompt-missing templates."""
+    d = tmp_path / "templates"
+    d.mkdir()
+    yaml_path = d / "orphan.yaml"
+    yaml_path.write_text(
+        VALID_YAML.replace("demo-agent", "orphan").replace(
+            "demo.prompt.md", "orphan.prompt.md"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(MissingPromptError):
+        load_template(yaml_path)
+
+
+def test_discover_templates_propagates_unexpected_errors(tmp_path: Path) -> None:
+    """Codex review — unexpected exceptions (programmer bugs, OS
+    errors) should NOT be silently swallowed. Only the expected
+    parse/validation/missing-prompt errors are caught. We verify
+    this by making the directory's globbed file unreadable at the
+    OS level and asserting that propagates."""
+    import os
+    import stat
+
+    d = tmp_path / "templates"
+    d.mkdir()
+    yaml_path = d / "locked.yaml"
+    yaml_path.write_text(VALID_YAML, encoding="utf-8")
+    (d / "locked.prompt.md").write_text(VALID_PROMPT, encoding="utf-8")
+    # Strip read permissions. On POSIX this makes the file unreadable
+    # for non-root users, which raises PermissionError from the open()
+    # inside AgentConfig.from_yaml_file — NOT a YAMLError or
+    # ValidationError, so it must propagate.
+    os.chmod(yaml_path, 0)
+    try:
+        # Skip on platforms where root ignores chmod (CI runners, etc).
+        if os.access(yaml_path, os.R_OK):
+            pytest.skip("file is still readable — running as root?")
+        with pytest.raises(PermissionError):
+            discover_templates(d)
+    finally:
+        os.chmod(yaml_path, stat.S_IRUSR | stat.S_IWUSR)
+
+
 def test_discover_templates_is_sorted_by_name(tmp_path: Path) -> None:
     d = tmp_path / "templates"
     d.mkdir()
     for name in ("zeta", "alpha", "mike"):
         (d / f"{name}.yaml").write_text(
-            VALID_YAML.replace("demo-agent", name).replace("demo.prompt.md", f"{name}.prompt.md"),
+            VALID_YAML.replace("demo-agent", name).replace(
+                "demo.prompt.md", f"{name}.prompt.md"
+            ),
             encoding="utf-8",
         )
+        (d / f"{name}.prompt.md").write_text(VALID_PROMPT, encoding="utf-8")
     results = discover_templates(d)
     assert [r.name for r in results] == ["alpha", "mike", "zeta"]
 
@@ -178,11 +252,13 @@ def test_list_templates_endpoint_401_without_cookie(tmp_template_dir: Path) -> N
     assert resp.status_code == 401
 
 
-def test_list_templates_endpoint_empty_when_dir_missing(tmp_path: Path) -> None:
+def test_list_templates_endpoint_500_when_dir_missing(tmp_path: Path) -> None:
+    """Codex review — misconfigured template dir surfaces as 500
+    with a helpful detail instead of an empty-list false success."""
     client = _make_client(tmp_path / "nope")
     resp = client.get("/templates")
-    assert resp.status_code == 200
-    assert resp.json() == {"templates": []}
+    assert resp.status_code == 500
+    assert "MARS_TEMPLATE_DIR" in resp.json()["detail"]
 
 
 def test_list_templates_uses_real_tracker_ops_template_by_default() -> None:

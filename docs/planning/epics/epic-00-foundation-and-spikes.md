@@ -123,10 +123,11 @@ Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 
   - *Done when:* fixture contains one complete session with system_init → assistant → tool_call → tool_result → result events
   - *Outcome:* 6-line fixture captured from pinned Claude Code 2.1.101: `system.init → assistant(tool_use) → rate_limit_event → user(tool_result) → assistant(text) → result.success`. Spike script drops user-global hook noise + strips cmux `[rerun: bN]` artifacts so the fixture matches what a clean Mars Fly container will emit.
 
-- [ ] **Story 0.6 — Spike 3: Permission round-trip** (~2h)
+- [x] **Story 0.6 — Spike 3: Permission round-trip** (~2h)
   - *Goal:* Determine if Claude Code permission prompts can be intercepted + responded to programmatically, or confirm `--permission-mode acceptEdits` fallback.
   - *Files:* `spikes/03-permission-roundtrip.md`
   - *Done when:* working mechanism documented OR `acceptEdits` fallback decision committed
+  - *Outcome:* Bidirectional stream-json input primitive validated (piped user event via stdin, got `assistant → result` out). Full permission-prompt wire schema deferred to v1.1. v1 ships with `acceptEdits` + static `--allowed-tools` allowlist + baked `claude_code_settings.json` PreToolUse denylist for CLAUDE.md/AGENTS.md and secret-read patterns. `docs/security.md` (Epic 9) will disclose that mid-session human-in-loop prompts are post-v1.
 
 ## Notes
 

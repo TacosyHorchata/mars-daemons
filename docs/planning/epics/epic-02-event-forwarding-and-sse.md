@@ -86,10 +86,11 @@ This epic lifts those patterns almost verbatim and wires them together.
 
 Total: **4 stories**, ~8h budget. Most code is lifted from Camtom's `sink.py` + `router.py` with mechanical renames.
 
-- [ ] **Story 2.1 — `forwarder.py` outbound HTTP (lift from Camtom)** (~2h)
+- [x] **Story 2.1 — `forwarder.py` outbound HTTP (lift from Camtom)** (~2h)
   - *Goal:* Outbound HTTP event forwarder that batches events (up to 100 or 500ms) and POSTs to control plane with `X-Event-Secret` header, lifting `HttpEventSink` from Camtom `sink.py:33-83`.
-  - *Files:* `apps/mars-runtime/src/events/forwarder.py`
+  - *Files:* `apps/mars-runtime/src/events/forwarder.py`, `tests/runtime/test_event_forwarder.py`
   - *Done when:* forwarder retries on unreachable control plane and buffers up to 1000 events, dropping oldest ephemerals first
+  - *Outcome:* `HttpEventForwarder` extends Camtom's POST-with-secret pattern with: batching (`max_batch=100` or `flush_interval_s=0.5`, whichever first), `buffer_limit=1000` with drop-oldest-ephemeral-never-drop-durable policy, exponential backoff on transport errors / 5xx (drops 4xx as contract bug), 16-hex sha256 fingerprint of secret for log correlation, graceful `stop()` with final drain. Codex adversarial review caught four issues — all fixed: (1) `_flush_once` was re-entrant, added `asyncio.Lock` so concurrent flush/stop/background calls cannot reorder sends or bypass backoff; (2) unexpected exceptions after popping a batch silently dropped events → broad `except Exception` branch now re-queues and re-backoffs; (3) `stop()` could skip final drain if the flush task crashed with a non-cancelled exception → now catches/logs and proceeds; (4) `sha256[:8]` bumped to `sha256[:16]` for entropy. 17 unit tests via `httpx.MockTransport`. Full suite 150 passed, 1 skipped. (Non-mock integration test is Story 2.4's scope.)
 
 - [ ] **Story 2.2 — `events/ingest.py` + SQLite persistence** (~2h)
   - *Goal:* Control plane HTTP POST endpoint validating `X-Event-Secret`, persisting durable events to SQLite (WAL mode), rejecting unauthorized requests with 401.

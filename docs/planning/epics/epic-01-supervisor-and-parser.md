@@ -107,10 +107,11 @@ Total: **6 stories**, ~14h budget. Contains the highest-risk file in the project
   - *Done when:* unit test classifies each event type correctly and a fixture event round-trips
   - *Outcome:* 9 concrete subtypes wired as a Pydantic v2 discriminated union via `MARS_EVENT_ADAPTER` (`TypeAdapter`). Durable/ephemeral split matches Camtom. Codex adversarial review surfaced boundary-contract issues which were all fixed before commit: strict-mode numeric fields with `ge=0` (reject bool/str coercion and negatives), `timestamp` as UTC-aware `datetime` (JSON-serialized to ISO), `Any` → `JsonValue` on tool inputs and permission_denials, `message_id` + `block_index` correlation fields on every per-block event (assistant_text/chunk, tool_call/result) for deterministic multi-block turn reconstruction, and a `model_validator` enforcing that ephemeral events must not carry a sequence. 21 unit tests in `tests/runtime/test_event_types.py`; full suite 52/52.
 
-- [ ] **Story 1.2 — ★ `claude_code_stream.py` parser v1 (happy path)** (~3h)
+- [x] **Story 1.2 — ★ `claude_code_stream.py` parser v1 (happy path)** (~3h)
   - *Goal:* Async JSONL parser mapping stream-json `system_init`, `assistant`, `user` tool_result, and `result` events to `MarsEvent` subtypes via dispatch table.
-  - *Files:* `apps/mars-runtime/src/session/claude_code_stream.py`
+  - *Files:* `apps/mars-runtime/src/session/__init__.py`, `apps/mars-runtime/src/session/claude_code_stream.py`, `tests/runtime/test_claude_code_stream.py`
   - *Done when:* parser consumes the `stream_json_sample.jsonl` fixture and yields typed events without loss
+  - *Outcome:* Flat dispatch table (NOT a state machine) mapping `(type, subtype)` → handler. Happy path on the captured fixture yields the canonical `SessionStarted → ToolCall → ToolResult → AssistantText → SessionEnded` (rate_limit_event dropped). Async `parse_stream` + sync `parse_line` both covered. After codex adversarial review, tightened silent-failure modes: `system.init` with missing canonical fields now raises `CriticalParseError` (a non-`ParseError` exception that propagates through `parse_stream` to the supervisor), `is_error` strict-matches literal `True` only (rejects `"false"`/`1`), non-dict `tool_use.input` logs a warning instead of silently coercing, image-only tool_results emit a visible placeholder sentinel instead of an empty string. 26 unit tests, full suite 78/78.
 
 - [ ] **Story 1.3 — ★ Parser v2 + contract test** (~3h)
   - *Goal:* Edge cases (partial messages, tool_result errors, unknown event types) + contract test that runs pinned `claude` CLI in CI and fails on schema drift.

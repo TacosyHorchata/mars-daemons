@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from events.types import (
+    AssistantChunk,
     AssistantText,
     SessionEnded,
     SessionStarted,
@@ -453,6 +454,155 @@ def test_non_dict_tool_input_logs_warning_and_falls_back_to_empty(caplog):
     assert any(
         "tool_use.input is not a dict" in rec.message for rec in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# stream_event — --include-partial-messages AssistantChunk events
+# ---------------------------------------------------------------------------
+
+
+def test_stream_event_text_delta_yields_assistant_chunk():
+    """Anthropic SSE content_block_delta.text_delta → AssistantChunk."""
+    line = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Hello"},
+            },
+            "session_id": "runtime-1",
+        }
+    )
+    out = parse_line(MARS_SESSION_ID, line)
+    assert len(out) == 1
+    chunk = out[0]
+    assert isinstance(chunk, AssistantChunk)
+    assert chunk.delta == "Hello"
+    assert chunk.block_index == 0
+    # Stateless parser — chunks don't carry a message_id
+    assert chunk.message_id is None
+    assert chunk.ephemeral is True
+    assert chunk.durable is False
+
+
+def test_stream_event_empty_text_delta_is_dropped():
+    """Empty text_delta chunks waste bandwidth — drop them."""
+    line = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": ""},
+            },
+        }
+    )
+    assert parse_line(MARS_SESSION_ID, line) == []
+
+
+def test_stream_event_non_text_delta_types_are_dropped():
+    """message_start, content_block_start/stop, message_delta/stop,
+    input_json_delta: not yet mapped to Mars events, dropped silently."""
+    for inner_type in (
+        "message_start",
+        "content_block_start",
+        "content_block_stop",
+        "message_delta",
+        "message_stop",
+    ):
+        line = json.dumps(
+            {
+                "type": "stream_event",
+                "event": {"type": inner_type, "index": 0},
+            }
+        )
+        assert parse_line(MARS_SESSION_ID, line) == [], f"expected drop for {inner_type}"
+
+
+def test_stream_event_input_json_delta_is_dropped():
+    """Tool input streaming isn't wired to Mars chunks in v1."""
+    line = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "input_json_delta", "partial_json": "{\"com"},
+            },
+        }
+    )
+    assert parse_line(MARS_SESSION_ID, line) == []
+
+
+def test_stream_event_with_bad_block_index_falls_back_to_none():
+    """strict=True on AssistantChunk.block_index rejects bools and
+    negatives; the parser should defensively coerce to None instead
+    of raising."""
+    line = json.dumps(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": -1,  # negative → not usable
+                "delta": {"type": "text_delta", "text": "hi"},
+            },
+        }
+    )
+    [ev] = parse_line(MARS_SESSION_ID, line)
+    assert isinstance(ev, AssistantChunk)
+    assert ev.block_index is None
+
+
+# ---------------------------------------------------------------------------
+# on_warning callback (parse_stream)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_stream_invokes_on_warning_for_malformed_lines():
+    """Soft drops surface via the callback instead of stdlib logging so
+    the supervisor has a structured hook."""
+
+    seen: list[tuple[str, BaseException | None]] = []
+
+    async def _run() -> list:
+        reader = asyncio.StreamReader()
+        reader.feed_data(b"{not json\n")
+        reader.feed_data(b"[1, 2]\n")
+        reader.feed_data(
+            json.dumps(
+                {
+                    "type": "system",
+                    "subtype": "init",
+                    "cwd": "/workspace",
+                    "model": "claude-opus-4-6",
+                    "claude_code_version": "2.1.101",
+                    "tools": ["Bash"],
+                }
+            ).encode()
+            + b"\n"
+        )
+        reader.feed_eof()
+        out: list = []
+        async for ev in parse_stream(
+            MARS_SESSION_ID,
+            reader,
+            on_warning=lambda m, e: seen.append((m, e)),
+        ):
+            out.append(ev)
+        return out
+
+    events = asyncio.run(_run())
+    assert len(events) == 1
+    assert isinstance(events[0], SessionStarted)
+    # Two warnings: one for json decode, one for non-object ParseError
+    assert len(seen) == 2
+    reasons = [msg for msg, _ in seen]
+    assert any("json decode error" in r for r in reasons)
+    assert any("parse error" in r for r in reasons)
+    exceptions = [exc for _, exc in seen]
+    assert any(isinstance(e, json.JSONDecodeError) for e in exceptions)
+    assert any(isinstance(e, ParseError) for e in exceptions)
 
 
 def test_tool_result_image_only_content_yields_placeholder(caplog):

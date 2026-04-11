@@ -6,44 +6,50 @@ async iterator of typed :class:`~events.types.MarsEventBase` payloads.
 
 This module is the contract between the pinned, externally-owned Claude
 Code CLI and the rest of Mars. It is the highest-risk file in the
-runtime; Story 1.3 adds a contract test that runs the real CLI against
-the captured spike-2 fixture and fails CI on any schema drift.
+runtime. ``tests/contract/test_claude_code_stream.py`` runs the real
+pinned CLI against it so schema drift fails fast.
 
-Scope — Story 1.2 (happy path)
-------------------------------
-
-Handles the canonical event sequence observed in the spike-2 fixture
-(``tests/contract/fixtures/stream_json_sample.jsonl``):
-
-    system.init → assistant(tool_use) → rate_limit_event
-    → user(tool_result) → assistant(text) → result.success
-
-and produces, in order: :class:`~events.types.SessionStarted`,
-:class:`~events.types.ToolCall`, (nothing for the rate_limit_event),
-:class:`~events.types.ToolResult`, :class:`~events.types.AssistantText`,
-:class:`~events.types.SessionEnded`.
-
-Known runtime events that Mars intentionally drops in v1.2:
-
-* ``rate_limit_event`` — quota / overage status, Mars exposes cost /
-  usage via :class:`SessionEnded` instead.
-* ``system.hook_started`` / ``system.hook_response`` — user-global hook
-  lifecycle; not present in clean Mars containers but tolerated here
-  defensively.
-* assistant ``thinking`` blocks — internal model reasoning; not
-  user-visible and not persisted in v1.
-
-Out of scope (Story 1.3)
+Supported runtime events
 ------------------------
 
-* ``--include-partial-messages`` assistant chunks
-* Multi-part tool_result content (list of text/image blocks — v1.2
-  collapses to a joined string best-effort but does not emit structured
-  blocks)
-* Error handling with a warning callback — v1.2 silently drops lines
-  that fail JSON decode, have an unexpected shape, or reference an
-  unknown event type
-* Contract test that runs the real CLI in CI
+* ``system.init`` → :class:`~events.types.SessionStarted` — canonical
+  session anchor. Raises :class:`CriticalParseError` on malformed
+  payloads because Mars cannot emit any other event without it.
+* ``assistant`` → one :class:`~events.types.AssistantText` per ``text``
+  content block + one :class:`~events.types.ToolCall` per ``tool_use``
+  block. ``thinking`` blocks are dropped (internal model reasoning).
+* ``user`` tool_result → :class:`~events.types.ToolResult` per block.
+* ``result.success`` / ``result.error`` → :class:`~events.types.SessionEnded`.
+* ``stream_event`` (only when the supervisor runs the CLI with
+  ``--include-partial-messages``) → one :class:`~events.types.AssistantChunk`
+  per ``content_block_delta.text_delta``. Every other inner event type
+  (``message_start``, ``content_block_start``, ``content_block_stop``,
+  ``message_delta``, ``message_stop``, ``input_json_delta``) is dropped.
+  Chunks are ephemeral by design — see :mod:`events.types`.
+
+Known runtime events that Mars intentionally drops
+--------------------------------------------------
+
+* ``rate_limit_event`` — quota / overage status, Mars exposes cost via
+  :class:`SessionEnded` instead.
+* ``system.hook_started`` / ``system.hook_response`` — user-global hook
+  lifecycle; not present in clean Mars containers but tolerated here.
+* Unknown ``(type, subtype)`` combinations — dropped silently at
+  :func:`parse_line`; :func:`parse_stream` callers can observe drops via
+  the ``on_warning`` callback.
+
+Error surfaces
+--------------
+
+* :class:`json.JSONDecodeError` — raised from :func:`parse_line` when a
+  line is malformed JSON; :func:`parse_stream` catches and reports via
+  ``on_warning``.
+* :class:`ParseError` — raised when a line decodes to something other
+  than a JSON object; :func:`parse_stream` catches and reports.
+* :class:`CriticalParseError` — raised only from ``system.init`` handler
+  when the session root event is unusable. :func:`parse_stream`
+  deliberately does NOT catch this: it propagates to the supervisor so
+  the broken session can be killed.
 """
 
 from __future__ import annotations
@@ -55,6 +61,7 @@ from collections.abc import Iterable
 from typing import AsyncIterator, Callable
 
 from events.types import (
+    AssistantChunk,
     AssistantText,
     MarsEventBase,
     SessionEnded,
@@ -139,18 +146,34 @@ def parse_line(session_id: str, line: str) -> list[MarsEventBase]:
     return list(handler(session_id, payload))
 
 
+#: Callback invoked by :func:`parse_stream` whenever a line is dropped
+#: because it failed to decode or map to a Mars event. Signature:
+#: ``(message: str, exception: Exception | None) -> None``. Intentionally
+#: narrower than ``BaseException`` so ``KeyboardInterrupt`` /
+#: ``SystemExit`` never flow through the callback path.
+WarningCallback = Callable[[str, "Exception | None"], None]
+
+
 async def parse_stream(
     session_id: str,
     stdout: asyncio.StreamReader,
+    *,
+    on_warning: WarningCallback | None = None,
 ) -> AsyncIterator[MarsEventBase]:
     """Consume a JSONL byte stream and yield typed Mars events.
 
     The supervisor wires this to the stdout of a
     ``claude -p ... --output-format stream-json`` subprocess. Each line
     is decoded as UTF-8, stripped, and passed to :func:`parse_line`.
-    Lines that fail to decode or that :func:`parse_line` rejects with
-    :class:`json.JSONDecodeError` / :class:`ParseError` are silently
-    dropped in v1.2; Story 1.3 adds a warning callback.
+
+    Recoverable errors (:class:`json.JSONDecodeError`, :class:`ParseError`,
+    unicode decode failure) are swallowed so one bad line does not kill
+    the stream, but they are reported via ``on_warning`` when provided.
+
+    Unrecoverable errors (:class:`CriticalParseError`, raised on a
+    malformed ``system.init`` event) are NOT caught here — they
+    propagate to the supervisor so it can kill the broken session
+    instead of emitting orphan events without an anchor.
 
     Args:
         session_id: Mars-assigned session identifier, stamped on every
@@ -159,9 +182,18 @@ async def parse_stream(
             runtime subprocess's stdout. The stream must signal EOF
             (via ``feed_eof`` in tests or process exit in production)
             for the iterator to terminate.
+        on_warning: Optional callback invoked for every dropped line
+            with a short human message and the underlying exception
+            (or ``None`` for soft drops like unicode failures). Narrower
+            than ``BaseException`` on purpose — ``KeyboardInterrupt`` /
+            ``SystemExit`` propagate normally.
 
     Yields:
         Typed Mars events in the order they arrive on the stream.
+
+    Raises:
+        CriticalParseError: if the runtime emits a malformed
+            ``system.init`` event — the session cannot proceed.
     """
     while True:
         line_bytes = await stdout.readline()
@@ -169,12 +201,23 @@ async def parse_stream(
             return
         try:
             decoded = line_bytes.decode("utf-8")
-        except UnicodeDecodeError:
+        except UnicodeDecodeError as exc:
+            if on_warning is not None:
+                on_warning("unicode decode failure on stream line", exc)
             continue
         try:
             events = parse_line(session_id, decoded)
-        except (json.JSONDecodeError, ParseError):
-            # v1.2: swallow malformed lines. v1.3 adds a warning hook.
+        except CriticalParseError:
+            # Session anchor is malformed — caller (supervisor) must
+            # kill the session and surface the error.
+            raise
+        except json.JSONDecodeError as exc:
+            if on_warning is not None:
+                on_warning(f"json decode error: {decoded.strip()[:120]!r}", exc)
+            continue
+        except ParseError as exc:
+            if on_warning is not None:
+                on_warning(f"parse error: {decoded.strip()[:120]!r}", exc)
             continue
         for ev in events:
             yield ev
@@ -408,6 +451,52 @@ def _denials_or_empty(value: object) -> list[dict]:
     return []
 
 
+def _handle_stream_event(session_id: str, payload: dict) -> list[MarsEventBase]:
+    """Translate Anthropic streaming SSE events (``--include-partial-messages``)
+    into ephemeral :class:`AssistantChunk` events.
+
+    Runtime shape (confirmed 2026-04-10 against Claude Code 2.1.101)::
+
+        {"type":"stream_event","event":{"type":"content_block_delta",
+          "index":0,"delta":{"type":"text_delta","text":"..."}}}
+
+    Only ``content_block_delta`` with an inner ``text_delta`` delta
+    produces output. Every other inner event type (``message_start``,
+    ``content_block_start``, ``content_block_stop``, ``message_delta``,
+    ``message_stop``, ``input_json_delta``) is dropped because the
+    canonical :class:`AssistantText` / :class:`ToolCall` events emitted
+    from the companion ``assistant`` message carry the authoritative
+    state; chunks are a best-effort streaming UX layer.
+
+    Chunks deliberately carry ``message_id=None`` — this parser is
+    stateless (no state machine, per v1 design). Consumers correlate
+    chunks to the subsequent :class:`AssistantText` by order.
+    """
+    inner = payload.get("event")
+    if not isinstance(inner, dict):
+        return []
+    if inner.get("type") != "content_block_delta":
+        return []
+    delta = inner.get("delta")
+    if not isinstance(delta, dict) or delta.get("type") != "text_delta":
+        return []
+    text = delta.get("text")
+    if not isinstance(text, str) or not text:
+        return []
+    block_index = inner.get("index")
+    # strict int check — matches AssistantChunk.block_index strict=True
+    if isinstance(block_index, bool) or not isinstance(block_index, int) or block_index < 0:
+        block_index = None
+    return [
+        AssistantChunk(
+            session_id=session_id,
+            delta=text,
+            message_id=None,
+            block_index=block_index,
+        )
+    ]
+
+
 def _handle_drop(session_id: str, payload: dict) -> list[MarsEventBase]:
     """Intentionally drop this runtime event from the Mars stream."""
     return []
@@ -426,4 +515,5 @@ _DISPATCH: dict[tuple[str | None, str | None], Handler] = {
     ("result", "success"): _handle_result,
     ("result", "error"): _handle_result,
     ("rate_limit_event", None): _handle_drop,
+    ("stream_event", None): _handle_stream_event,
 }

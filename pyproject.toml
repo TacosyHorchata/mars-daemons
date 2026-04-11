@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "apps/mars-control/tests"]
 pythonpath = [
     "apps/mars-control/backend/src",
     "apps/mars-runtime/src",

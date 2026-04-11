@@ -15,8 +15,13 @@ import pytest
 
 from schema.agent import AgentConfig
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATE_DIR = _REPO_ROOT / "apps" / "mars-control" / "templates"
+# Resolve the templates dir relative to this test file so the path
+# works both pre-split (apps/mars-control/tests/control/ under the
+# monorepo) and post-split (tests/control/ at the mars-control repo
+# root). parents[2] == apps/mars-control/ pre-split == mars-control/
+# repo root post-split.
+_CONTROL_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATE_DIR = _CONTROL_ROOT / "templates"
 TEMPLATE_YAML = TEMPLATE_DIR / "tracker-ops-assistant.yaml"
 TEMPLATE_PROMPT = TEMPLATE_DIR / "tracker-ops-assistant.prompt.md"
 

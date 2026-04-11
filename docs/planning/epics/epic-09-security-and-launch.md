@@ -126,10 +126,11 @@ The plan agent's advice: **"Your threat model is narrow and honest: 'code you wr
 
 Total: **4 stories**, ~16h budget (spans 2 days: Day 12 security + hardening, Day 13 Maat call + ship).
 
-- [ ] **Story 9.1 — ★ `docs/security.md` — v1 threat model** (~4h)
+- [x] **Story 9.1 — ★ `docs/security.md` — v1 threat model** (~4h)
   - *Goal:* Explicit v1 threat model covering protected attacks, out-of-scope attacks, data handling (OAuth tokens, API keys, session history), and known limitations. Written BEFORE launch.
   - *Files:* `docs/security.md`
   - *Done when:* doc merged, 500+ words with no padding, adversarial reviewer finds no obvious gaps
+  - *Outcome:* Shipped `docs/security.md` at 2271 words structured around 5 sections: (1) TL;DR establishing the user as the trust root and the speed-bump nature of secret-read hooks; (2) "What Mars is and is not" explicitly calling out that Mars is NOT a sandbox, secrets manager, zero-trust runtime, or compliance product; (3) Trust boundaries diagram showing you → Mars → LLM provider with the note that prompts transit Anthropic/OpenAI exactly as if you ran claude locally; (4) **What Mars protects against**: prompt immutability (three-layer CLAUDE.md defense with test citations), magic-link + JWT session cookie auth with audience separation, event forwarder `X-Event-Secret` validation, secret-read bash speed bump, prompt-edit proposals captured-never-applied, supervisor control API not publicly reachable; (5) **What Mars does NOT protect against (explicit scope)**: daemon reading env secrets (python one-liner bypass), compromised control plane, Anthropic/OpenAI reading prompts, timing attacks (rate limit deferred to 9.2), side-channel attacks on Fly shared tenancy, supply-chain attacks on claude/codex/pypi, multi-tenant isolation, out-of-band `mars ssh` root access. Plus an explicit "Env vars exposed to subprocesses" section walking through `build_claude_env` + `build_codex_env` allowlist with the `HOME` tradeoff called out, a numbered "Known limitations (v1.1 backlog)" section, a vulnerability reporting address, and a "What changes at v2" forward-looking section. Cross-references every relevant test file + source file so a reviewer can verify claims against code. 30/47 stories done.
 
 - [ ] **Story 9.2 — PreToolUse refinement + env audit + rate limit** (~4h)
   - *Goal:* Refine `claude_code_settings.json` hooks based on dogfood learnings, audit env var exposure to subprocesses, add 5/min rate limit to magic-link endpoint.

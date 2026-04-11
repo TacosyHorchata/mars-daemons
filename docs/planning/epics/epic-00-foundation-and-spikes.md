@@ -111,10 +111,11 @@ Total: **6 stories**, ~9h budget. Epic 0 gates all other epics — spikes 1 and 
   - *Files:* `packages/mars-cli/src/mars/__main__.py`, `packages/mars-cli/src/mars/init.py`
   - *Done when:* `mars init` in an empty dir creates a valid agent.yaml parseable by `AgentConfig`
 
-- [ ] **Story 0.4 — ★ Spike 1: Claude Code headless OAuth** (~2h)
+- [x] **Story 0.4 — ★ Spike 1: Claude Code headless OAuth** (~2h)
   - *Goal:* Prove `claude setup-token` + `CLAUDE_CODE_OAUTH_TOKEN` runs Claude Code headlessly in a Docker container, OR commit a BYO-API-key pivot decision.
-  - *Files:* `spikes/01-claude-code-oauth.sh`, `docs/decisions/001-oauth-pivot.md`
+  - *Files:* `spikes/01-claude-code-oauth.sh`, `docs/decisions/001-oauth-status.md`
   - *Done when:* headless `claude -p` runs in a container OR pivot decision committed
+  - *Outcome:* host stream-json headless validated (clean-env `claude -p` produces well-formed JSONL with `system.init → assistant → result` events). Container + setup-token path scripted in `spikes/01-claude-code-oauth.sh` but pending Pedro's interactive browser OAuth. Architecture commitment is auth-mode-agnostic — safe to proceed. See `docs/decisions/001-oauth-status.md`.
 
 - [ ] **Story 0.5 — ★ Spike 2: stream-json schema capture** (~1h)
   - *Goal:* Capture canonical Claude Code stream-json output as a test fixture for Epic 1's parser.

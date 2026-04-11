@@ -69,7 +69,7 @@
 
 - Total epics: 10
 - Total stories: 47
-- Done: 19
+- Done: 21
 - In progress: 0
 - Blocked: 0
 

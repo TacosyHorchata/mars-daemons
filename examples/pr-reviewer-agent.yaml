@@ -1,8 +1,8 @@
-# Pedro's dogfood daemon.
-# Reviews PRs on Camtom's epic/agents-v2 branch and posts structured review
-# comments. This is the Day 10 smoke-test target in the v1 plan.
+# Reference dogfood daemon — reviews open pull requests on a target
+# GitHub repo and posts structured review comments. Generic enough that
+# any dev team can adapt it; no customer-specific wiring.
 name: pr-reviewer
-description: Reviews open pull requests on Camtom's epic/agents-v2 branch and posts structured review comments.
+description: Reviews open pull requests on a target GitHub repo and posts structured review comments.
 runtime: claude-code
 system_prompt_path: ./CLAUDE.md
 workdir: /workspace/pr-reviewer

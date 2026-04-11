@@ -1,14 +1,12 @@
 """Mars event type hierarchy for the runtime supervisor.
 
 Every event produced by a Mars daemon session flows through this module.
-The shape mirrors Camtom's pattern at
-``services/fastapi/src/products/agents/agent/events.py`` (lines 18-111):
-a set of string-constant event types, a split between *durable* and
-*ephemeral* classes, and classifier helpers. We deliberately copy that
-shape so the same mental model carries over for contributors who already
-worked in Camtom.
+The design uses string-constant event types, a split between *durable*
+and *ephemeral* classes, and classifier helpers — a shape proven in
+production AI agent platforms where the same event stream needs both
+durable replay (for browser reconnect) and low-latency ephemeral fanout.
 
-Differences from Camtom:
+Key properties:
 
 * Mars events are typed Pydantic models (not plain dicts). Each concrete
   subtype is a subclass of :class:`MarsEventBase` with its own payload
@@ -21,9 +19,9 @@ Differences from Camtom:
   the supervisor for durable events. Ephemeral events never receive one.
 
 The durable / ephemeral split is the contract with the HTTP event
-forwarder (Epic 2) and the control plane's SSE fanout: durable events
-MUST be persisted before emit so browsers can replay them on reconnect;
-ephemeral events are safe to drop on backpressure.
+forwarder (Epic 2) and any downstream control plane's SSE fanout:
+durable events MUST be persisted before emit so browsers can replay them
+on reconnect; ephemeral events are safe to drop on backpressure.
 """
 
 from __future__ import annotations

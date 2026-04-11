@@ -59,8 +59,9 @@ def test_every_concrete_subtype_is_classified_exactly_once():
     assert every_type == DURABLE_EVENT_TYPES | EPHEMERAL_EVENT_TYPES
 
 
-def test_durable_set_matches_camtom_pattern():
-    # State-transition events are durable (mirrors Camtom save→emit).
+def test_state_transition_events_are_durable():
+    # State-transition events are durable: they must be persisted before
+    # emit so browsers can replay them on reconnect.
     assert is_durable(EVENT_SESSION_STARTED)
     assert is_durable(EVENT_SESSION_ENDED)
     assert is_durable(EVENT_ASSISTANT_TEXT)

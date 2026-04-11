@@ -6,9 +6,8 @@ POSTs them to the control plane's ingest endpoint over HTTP. The
 control plane is the durable sink + browser SSE fanout. One SSE hop,
 not two.
 
-Lifts the basic shape of Camtom's ``HttpEventSink``
-(``services/fastapi/src/products/agents/agent/sink.py:33-83``) and
-extends it with the additional semantics the Mars epic requires:
+The forwarder's semantics are the contract between the supervisor and
+any control plane consumer:
 
 * Batching: up to :data:`DEFAULT_MAX_BATCH` events or
   :data:`DEFAULT_FLUSH_INTERVAL_S` seconds, whichever comes first.

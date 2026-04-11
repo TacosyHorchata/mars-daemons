@@ -402,10 +402,10 @@ def _handle_result(session_id: str, payload: dict) -> list[MarsEventBase]:
     """Handles both ``result.success`` and ``result.error`` — same shape.
 
     Mars v1 collapses both into :class:`SessionEnded`; the ``stop_reason``
-    field carries the distinction for downstream consumers. This matches
-    Camtom's ``turn_completed`` + ``turn_error`` pair, except Mars keeps
-    them on the session-level event because Claude Code emits ``result``
-    only once per ``claude -p`` invocation.
+    field carries the distinction for downstream consumers. The
+    distinction is kept on the session-level event because Claude Code
+    emits ``result`` only once per ``claude -p`` invocation — there is
+    no per-turn granularity to preserve at this layer.
     """
     result = payload.get("result")
     result_str = result if isinstance(result, str) else None

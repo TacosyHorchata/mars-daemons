@@ -313,17 +313,17 @@ def test_build_claude_env_only_forwards_declared_secrets():
     parent = {
         "PATH": "/usr/bin",
         "HOME": "/home/x",
-        "ZOHO_API_KEY": "zoho-secret",
+        "EXTERNAL_API_KEY": "external-secret",
         "OTHER_SECRET": "should-not-leak",
         "CLAUDECODE": "1",
         "CLAUDE_CODE_ENTRYPOINT": "cli",
     }
     config = _make_config("leak-check", tools=[])
-    config = config.model_copy(update={"env": ["ZOHO_API_KEY"]})
+    config = config.model_copy(update={"env": ["EXTERNAL_API_KEY"]})
     env = build_claude_env(config, parent_env=parent)
     assert env["PATH"] == "/usr/bin"
     assert env["HOME"] == "/home/x"
-    assert env["ZOHO_API_KEY"] == "zoho-secret"
+    assert env["EXTERNAL_API_KEY"] == "external-secret"
     assert "OTHER_SECRET" not in env
     # cmux/parent Claude Code leakage scrubbed
     assert "CLAUDECODE" not in env

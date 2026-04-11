@@ -30,16 +30,6 @@ def test_pr_reviewer_example_parses():
     assert "GITHUB_TOKEN" in cfg.env
 
 
-def test_orion_example_parses():
-    cfg = AgentConfig.parse_file(EXAMPLES / "orion-daemon.yaml")
-
-    assert cfg.name == "orion-ops"
-    assert cfg.runtime == "claude-code"
-    assert cfg.workdir == "/workspace/orion"
-    assert cfg.mcps == ["whatsapp", "zoho"]
-    assert "ZOHO_API_KEY" in cfg.env
-
-
 def test_runtime_defaults_to_claude_code(tmp_path: Path):
     """Default runtime keeps single-source-of-truth for v1."""
     p = tmp_path / "minimal.yaml"
@@ -129,10 +119,12 @@ def test_missing_file_raises(tmp_path: Path):
 
 def test_examples_are_valid_yaml_top_level_mappings():
     """Guard against someone committing a YAML list or scalar by mistake."""
-    for example in ("pr-reviewer-agent.yaml", "orion-daemon.yaml"):
-        with (EXAMPLES / example).open() as f:
+    yaml_examples = sorted(EXAMPLES.glob("*.yaml"))
+    assert yaml_examples, "examples/ must contain at least one .yaml reference"
+    for example in yaml_examples:
+        with example.open() as f:
             data = yaml.safe_load(f)
-        assert isinstance(data, dict), f"{example} must be a top-level mapping"
+        assert isinstance(data, dict), f"{example.name} must be a top-level mapping"
 
 
 # --- Stricter validators (prevent silent-failure modes in the supervisor) ---

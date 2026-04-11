@@ -117,10 +117,11 @@ The trick is that the substrate is already built: Epics 1–6 cover everything M
 
 Total: **5 stories**, ~8h budget. Without this epic, Maat cannot use Mars and the design-partner thesis collapses.
 
-- [ ] **Story 8.1 — `tracker-ops-assistant.yaml` + Spanish system prompt** (~1h)
+- [x] **Story 8.1 — `tracker-ops-assistant.yaml` + Spanish system prompt** (~1h)
   - *Goal:* Pre-baked template agent.yaml with WhatsApp/Zoho/Pilot MCPs + Spanish system prompt tuned for Orion ops assistant, with placeholder secrets the wizard fills in.
-  - *Files:* `apps/mars-control/templates/tracker-ops-assistant.yaml`, `apps/mars-control/templates/tracker-ops-assistant.prompt.md`
+  - *Files:* `apps/mars-control/templates/tracker-ops-assistant.yaml`, `apps/mars-control/templates/tracker-ops-assistant.prompt.md`, `tests/control/test_template_tracker_ops.py`
   - *Done when:* `AgentConfig.parse_file()` succeeds on the template
+  - *Outcome:* Landed both files. **YAML** declares `runtime: claude-code`, workdir `/workspace/tracker-ops-assistant`, MCPs `[whatsapp, zoho, pilot]`, tools `[Read, Write, Edit, Bash, Grep, Glob]`, env names for the 7 secrets the wizard will collect (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `WHATSAPP_SESSION_NAME`, 3x `ZOHO_*`, `PILOT_SESSION_NAME`). Validated against `AgentConfig.from_yaml_file` — parses clean. **Prompt** is Spanish-first (mexicano, no English), structured as: persona + style (speak clearly, no jargon, answer-then-ask, never hallucinate), tools catalog (whatsapp/zoho/pilot/filesystem — each with rules), explicit "what you do NOT do" list (no billing, no strategic decisions, no promises without system confirmation), and a daily routine (read inbox → triage → write daily summary). The prompt bakes in the Orion-specific framing (customs broker-style rules, daily summary filename convention, owner-vs-assistant scope boundary). 7 unit tests: file existence, YAML validity, MCPs set, env secrets set, Spanish stop-word detection (`Eres`, `español`, `Tu trabajo`, `herramientas`), prompt mentions all 3 MCPs, description contains `español`.
 
 - [ ] **Story 8.2 — Templates tab + discovery API** (~1h)
   - *Goal:* Dashboard Templates tab with card grid rendering templates from `GET /templates`.

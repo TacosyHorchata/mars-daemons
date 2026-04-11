@@ -17,6 +17,10 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["apps/mars-control/backend/src", "packages/mars-cli/src"]
+pythonpath = [
+    "apps/mars-control/backend/src",
+    "apps/mars-runtime/src",
+    "packages/mars-cli/src",
+]
 python_files = ["test_*.py"]
 addopts = "-q"

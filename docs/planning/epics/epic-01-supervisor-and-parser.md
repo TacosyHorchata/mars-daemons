@@ -101,10 +101,11 @@ This epic is where v1 stops being hypothetical and starts being real engineering
 
 Total: **6 stories**, ~14h budget. Contains the highest-risk file in the project (`claude_code_stream.py`) — Stories 1.2 and 1.3 are the most load-bearing in all of v1.
 
-- [ ] **Story 1.1 — `MarsEvent` type hierarchy** (~2h)
+- [x] **Story 1.1 — `MarsEvent` type hierarchy** (~2h)
   - *Goal:* Define `MarsEvent` base + subtypes (`AssistantText`, `ToolCall`, `ToolResult`, `PermissionRequest`, `TurnCompleted`, `SessionStarted`, `SessionEnded`) with durable/ephemeral split mirroring Camtom's `agent/events.py:18-111`.
-  - *Files:* `apps/mars-runtime/src/events/types.py`
+  - *Files:* `apps/mars-runtime/src/events/types.py`, `tests/runtime/test_event_types.py`, `pyproject.toml`
   - *Done when:* unit test classifies each event type correctly and a fixture event round-trips
+  - *Outcome:* 9 concrete subtypes wired as a Pydantic v2 discriminated union via `MARS_EVENT_ADAPTER` (`TypeAdapter`). Durable/ephemeral split matches Camtom. Codex adversarial review surfaced boundary-contract issues which were all fixed before commit: strict-mode numeric fields with `ge=0` (reject bool/str coercion and negatives), `timestamp` as UTC-aware `datetime` (JSON-serialized to ISO), `Any` → `JsonValue` on tool inputs and permission_denials, `message_id` + `block_index` correlation fields on every per-block event (assistant_text/chunk, tool_call/result) for deterministic multi-block turn reconstruction, and a `model_validator` enforcing that ephemeral events must not carry a sequence. 21 unit tests in `tests/runtime/test_event_types.py`; full suite 52/52.
 
 - [ ] **Story 1.2 — ★ `claude_code_stream.py` parser v1 (happy path)** (~3h)
   - *Goal:* Async JSONL parser mapping stream-json `system_init`, `assistant`, `user` tool_result, and `result` events to `MarsEvent` subtypes via dispatch table.

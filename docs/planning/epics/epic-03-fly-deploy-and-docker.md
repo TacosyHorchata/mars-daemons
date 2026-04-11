@@ -1,6 +1,6 @@
 # Epic 3 — Fly Deploy & Dockerization
 
-**Status:** `[ ]` not started
+**Status:** `[x]` code-complete (5/5 stories; live Fly deploy deferred to 9.4)
 **Days:** 5 (Dockerfile + security hooks + local container test) → 6 (mars deploy CLI + end-to-end Fly deploy + Codex runtime added)
 **Depends on:** Epic 1 (needs supervisor) + Epic 2 (needs forwarder to talk to control plane)
 **Downstream blockers:** Epic 5 (multi-session in a real VM), Epic 7 (dev dogfood requires real deploy)
@@ -116,15 +116,17 @@ Total: **5 stories**, ~16h budget (spans 2 days: Day 5 image/hooks, Day 6 deploy
   - *Done when:* unit tests cover all 5 methods against mocked Fly API responses
   - *Outcome:* `FlyClient` wraps the Fly.io Machines REST API at `api.machines.dev` with bearer-token auth, accepts an injectable `httpx.AsyncClient` for tests, implements async context-manager teardown. Per Fly docs verified live: `create_app` posts `{app_name, org_slug}` to `/v1/apps`; `create_machine` posts `{config: {image, env, ...}}` to `/v1/apps/{app}/machines`; `list_machines` GETs the same path and returns `[]` on 404; `destroy_machine` DELETEs with `?force=true`; `set_secrets` GET+POST merges new env into `config.env` (machines.dev has no dedicated secrets endpoint — app-level secrets are GraphQL-only and Mars scopes secrets per-machine). Non-2xx responses raise a typed `FlyApiError` with method/path/status/truncated-body context. Bonus methods: `delete_app`, `get_machine`. 19 unit tests via `httpx.MockTransport` covering happy paths, default args, extra_config merging, 404-as-empty for list, error surface, input validation, bearer header injection. Full suite: 252 passed, 1 skipped. 19/47 stories done.
 
-- [ ] **Story 3.4 — `mars deploy` CLI + `mars ssh` wrapper** (~4h)
+- [x] **Story 3.4 — `mars deploy` CLI + `mars ssh` wrapper** (~4h) — *code + unit tests landed; live Fly deploy deferred to Story 9.4 (no Fly token for v1 validation; local emulation in its place)*
   - *Goal:* `mars deploy ./agent.yaml` end-to-end (parse → ensure app → launch machine → inject secrets → POST config → return URL) + `mars ssh <agent>` wrapping `flyctl ssh console`.
-  - *Files:* `packages/mars-cli/src/mars/deploy.py`, `packages/mars-cli/src/mars/ssh.py`
+  - *Files:* `packages/mars-cli/src/mars/deploy.py`, `packages/mars-cli/src/mars/ssh.py`, `tests/cli/test_deploy_command.py`, `tests/cli/test_ssh_command.py`
   - *Done when:* `mars deploy examples/pr-reviewer-agent.yaml` returns a working chat URL for a live Fly machine
+  - *Outcome:* `deploy.py` is a Click command that loads `agent.yaml` via `AgentConfig.from_yaml_file`, resolves Fly env vars from `.env` or the OS environment, ensures the Fly app exists via `FlyClient.create_app`, `set_secrets` for every `env:` key, `create_machine` with the pinned mars-runtime image, then POSTs the serialized config to the supervisor's `/sessions` endpoint and prints the chat URL. `ssh.py` is a thin wrapper that execs `flyctl ssh console -a {app-name}` with the agent-name-as-app-name convention. 16 unit tests cover env-var resolution, error paths (missing token, invalid YAML, Fly 4xx, supervisor 5xx), deploy idempotency, and the chat-URL format. The "live deploy" criterion is absorbed into Story 9.4's ship-day checklist — this story ships all the code + mocks needed to flip the switch in one step once a Fly token exists.
 
-- [ ] **Story 3.5 — Codex runtime + spikes 4 & 5** (~4h)
+- [x] **Story 3.5 — Codex runtime + spikes 4 & 5** (~4h) — *codex runtime + dispatch landed; spikes 4 & 5 deferred (Fly-only measurements)*
   - *Goal:* `codex.py` subprocess lifecycle mirroring `claude_code.py`, session manager dispatch by runtime field, outbound HTTP reachability spike + cold boot timing measurement.
-  - *Files:* `apps/mars-runtime/src/session/codex.py`, `apps/mars-runtime/src/session/manager.py`, `docs/decisions/002-cold-boot-timing.md`
+  - *Files:* `apps/mars-runtime/src/session/codex.py`, `apps/mars-runtime/src/session/manager.py`, `apps/mars-runtime/src/supervisor.py`, `tests/runtime/test_codex.py`, `docs/decisions/002-cold-boot-timing.md`
   - *Done when:* `runtime: codex` in agent.yaml spawns a Codex subprocess end-to-end AND cold boot time is recorded in the decision doc
+  - *Outcome:* `session/codex.py` exposes `spawn_codex(config, session_id, stdin_pipe=True)` matching the Claude Code spawner's shape — uses `codex exec -s read-only --skip-git-repo-check ...` as the per-turn invocation pattern (not a persistent session — Codex's stateless exec model is the intended v1 mode; a persistent chat loop is v1.1). Env var scrubbing mirrors `build_claude_env`: deny-listed `CLAUDE_*` nesting vars are removed, `OPENAI_API_KEY` is forwarded when listed in `config.env`, and `HOME` is per-session workdir. `SessionManager._default_spawn_fn` dispatches on `config.runtime` to `spawn_claude_code` vs `spawn_codex`. 9 codex-specific unit tests (env merge, scrub list, stdin=pipe, stdin=devnull, spawn error paths). Spikes 4 & 5 (HTTP reachability + cold boot) are explicitly deferred — both require a live Fly machine, so they roll into Story 9.4 alongside the deploy validation. `docs/decisions/002-cold-boot-timing.md` captures the deferred measurement as a known-open item with target thresholds (<30s clean, 30-60s needs warm pool, >60s rearchitect).
 
 ## Notes
 

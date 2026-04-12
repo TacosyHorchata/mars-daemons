@@ -76,12 +76,10 @@ RUN pip install --no-cache-dir \
 RUN useradd -m -u 1000 -s /bin/bash mars
 
 # --- App source -------------------------------------------------------------
-# Runtime and the shared schema module get copied as two roots so the
-# supervisor's imports match what tests use on the host pythonpath.
+# Runtime source (including the schema module) gets copied as a single
+# root so the supervisor's imports match what tests use on the host.
 WORKDIR /app
 COPY --chown=mars:mars apps/mars-runtime/src /app/runtime-src
-COPY --chown=mars:mars apps/mars-control/backend/src/schema /app/control-src/schema
-COPY --chown=mars:mars apps/mars-control/backend/src/mars_control /app/control-src/mars_control
 
 # Entrypoint script (graceful shutdown, env defaults)
 COPY --chown=mars:mars apps/mars-runtime/start.sh /app/start.sh
@@ -103,14 +101,14 @@ RUN chmod +x /app/hooks/*.sh
 USER mars
 
 # PYTHONPATH mirrors the pytest pythonpath on the host: mars-runtime src
-# comes first (events, session, supervisor), mars-control src second
-# (mars_control package + the shared schema module).
+# provides all supervisor-level imports (events, session, supervisor,
+# schema).
 #
 # MARS_CLAUDE_CODE_SETTINGS is read by
 # ``session.claude_code.spawn_claude_code`` and passed as ``--settings``
 # to every ``claude -p`` invocation, activating the baked PreToolUse
 # hooks.
-ENV PYTHONPATH="/app/runtime-src:/app/control-src" \
+ENV PYTHONPATH="/app/runtime-src" \
     PORT=8080 \
     MARS_CLAUDE_CODE_SETTINGS="/app/claude_code_settings.json"
 

@@ -22,15 +22,11 @@ on:
   pull_request:
     paths:
       - apps/mars-runtime/**
-      - apps/mars-control/backend/src/mars_control/**
-      - apps/mars-control/backend/src/schema/**
       - .github/workflows/build-mars-runtime.yml
   push:
     branches: [main]
     paths:
       - apps/mars-runtime/**
-      - apps/mars-control/backend/src/mars_control/**
-      - apps/mars-control/backend/src/schema/**
       - .github/workflows/build-mars-runtime.yml
   # Manual trigger for ad-hoc rebuilds (Pedro debugging in the UI).
   workflow_dispatch:

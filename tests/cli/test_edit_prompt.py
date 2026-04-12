@@ -60,7 +60,7 @@ def test_strip_header_handles_only_header():
 # ---------------------------------------------------------------------------
 
 
-def test_edit_prompt_with_file_patches_mars_control(tmp_path: Path):
+def test_edit_prompt_with_file_patches_control_plane(tmp_path: Path):
     new_prompt_file = tmp_path / "new-claude.md"
     new_prompt_file.write_text("You are Pedro's PR reviewer.\n")
 

@@ -9,7 +9,7 @@ See https://www.mihaileric.com/The-Emperor-Has-No-Clothes/ for the pattern.
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import TextIO
 
@@ -43,6 +43,7 @@ def run(
     tools: ToolRegistry,
     *,
     stdin: TextIO | None = None,
+    turn_source: Iterable[str] | None = None,
     sessions_dir: Path | None = None,
     session_id: str | None = None,
     workspace_path: Path | None = None,
@@ -75,7 +76,12 @@ def run(
     # existing user-role text messages so resumed sessions keep advancing.
     turn_number = sum(1 for m in messages if m["role"] == "user" and _is_user_text(m)) + 1
 
-    turns = _read_turns(stdin if stdin is not None else sys.stdin)
+    # Turn source precedence: explicit iterable (worker RPC mode) > stdin
+    # (legacy / tests) > sys.stdin (default).
+    if turn_source is not None:
+        turns: Iterable[str] = turn_source
+    else:
+        turns = _read_turns(stdin if stdin is not None else sys.stdin)
     stop_reason: str | None = None
 
     def _persist_turn(preview: str) -> None:

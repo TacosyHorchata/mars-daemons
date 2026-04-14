@@ -34,6 +34,7 @@ RUN set -eux; \
 
 RUN pip install --no-cache-dir \
         "anthropic>=0.40" \
+        "openai>=1.0" \
         "httpx>=0.28,<1" \
         "pydantic>=2.6,<3" \
         "pyyaml>=6.0,<7"
@@ -53,4 +54,4 @@ USER mars
 ENV PYTHONPATH="/app/runtime-src" \
     MARS_DATA_DIR="/data"
 
-ENTRYPOINT ["/usr/bin/tini", "--", "python", "-m", "mars_runtime"]
+ENTRYPOINT ["/usr/bin/tini", "--", "python", "-m", "mars_runtime._bootstrap"]

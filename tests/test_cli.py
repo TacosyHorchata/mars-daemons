@@ -127,23 +127,58 @@ def test_resume_rejects_path_traversal(tmp_path, capsys, monkeypatch):
 
 
 def test_git_subprocess_error_is_caught(yaml_and_prompt, tmp_path, capsys, monkeypatch):
-    """CalledProcessError from git must not surface as a traceback."""
+    """CalledProcessError from git must not surface as a traceback.
+
+    Git runs in the worker process, so this test invokes the worker
+    directly rather than spawning a subprocess (which can't inherit
+    monkeypatches).
+    """
+    import io
+    import json
     import subprocess
+    from mars_runtime import _worker
+    from mars_runtime.llm_client import Response
 
     data_dir = tmp_path / "data"
-    monkeypatch.setenv("MARS_DATA_DIR", str(data_dir))
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("hi\n"))
+    (data_dir / "workspace").mkdir(parents=True)
+    (data_dir / "sessions").mkdir(parents=True)
+    from mars_runtime.schema import AgentConfig
+    config = AgentConfig.from_yaml_file(yaml_and_prompt)
+    config = config.model_copy(update={"system_prompt_path": str((yaml_and_prompt.parent / "CLAUDE.md").resolve())})
 
     def _broken_commit(*_args, **_kwargs):
         raise subprocess.CalledProcessError(128, ["git", "commit"], output="", stderr="denied")
 
-    with patch("mars_runtime.__main__.llm_client.get", return_value=_StubLLM()), \
-         patch("mars_runtime.workspace.commit_turn", side_effect=_broken_commit):
-        rc = cli.main([str(yaml_and_prompt)])
+    # Worker reads RPC from stdin, writes to stdout. Feed it a user_input
+    # + eof + chat_response. The chat_response must arrive AFTER the
+    # worker emits its chat_request, but since the user_input triggers
+    # turn processing which issues chat_request, we can prime the pipe
+    # in order because json-line reads are synchronous.
+    stub_response = {
+        "rpc": "chat_response",
+        "id": 0,
+        "response": {
+            "text": "ok",
+            "tool_calls": [],
+            "stop_reason": "end_turn",
+            "raw_content": [{"type": "text", "text": "ok"}],
+        },
+    }
+    stdin_script = (
+        json.dumps({"rpc": "user_input", "text": "hi"}) + "\n"
+        + json.dumps(stub_response) + "\n"
+        + json.dumps({"rpc": "eof"}) + "\n"
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin_script))
+    monkeypatch.setattr("mars_runtime.workspace.commit_turn", _broken_commit)
 
+    rc = _worker.main([
+        "--agent-json", json.dumps(config.model_dump()),
+        "--session-id", "sess_cc0000000000000000000099",
+        "--data-dir", str(data_dir),
+    ])
     assert rc == 1
-    err = capsys.readouterr().err
-    assert "git error" in err
+    assert "git error" in capsys.readouterr().err
 
 
 def _write_resume_fixture(sessions: Path, sid: str, messages: object) -> None:

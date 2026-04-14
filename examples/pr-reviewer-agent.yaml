@@ -3,16 +3,14 @@
 # any dev team can adapt it; no customer-specific wiring.
 name: pr-reviewer
 description: Reviews open pull requests on a target GitHub repo and posts structured review comments.
-runtime: claude-code
+model: claude-opus-4-5
 system_prompt_path: ./CLAUDE.md
 workdir: /workspace/pr-reviewer
-mcps:
-  - github
 tools:
-  - Bash
-  - Read
-  - Grep
-  - Glob
+  - bash
+  - read
+  - grep
+  - glob
 env:
   - GITHUB_TOKEN
   - ANTHROPIC_API_KEY

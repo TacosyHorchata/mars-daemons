@@ -13,6 +13,7 @@ transcript is provider-agnostic.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, Protocol, TypedDict, runtime_checkable
 
@@ -43,6 +44,31 @@ class Response:
     raw_content: list[dict] = field(default_factory=list)
 
 
+@dataclass
+class ChatChunk:
+    """One slice of a streaming LLM response.
+
+    Canonical kinds:
+      - "text_delta": incremental token(s) arriving. `text` holds the piece.
+      - "tool_use": a complete tool-use block decoded from the stream.
+        `tool_call` holds id/name/input.
+      - "message_stop": end marker. `stop_reason` and `final_response`
+        are populated so callers that don't care about streaming can
+        just grab the final Response from the last chunk.
+
+    The chat_stream() iterator always ends with exactly one message_stop.
+    Providers translate their native event shapes into this canonical
+    form so agent.py and client-side wrappers don't need to know which
+    provider is in use.
+    """
+
+    kind: Literal["text_delta", "tool_use", "message_stop"]
+    text: str = ""
+    tool_call: ToolCall | None = None
+    stop_reason: str | None = None
+    final_response: Response | None = None
+
+
 @runtime_checkable
 class LLMClient(Protocol):
     def chat(
@@ -54,6 +80,45 @@ class LLMClient(Protocol):
         model: str,
         max_tokens: int,
     ) -> Response: ...
+
+    def chat_stream(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        model: str,
+        max_tokens: int,
+    ) -> Iterator[ChatChunk]: ...
+
+
+def fallback_chat_stream(
+    client: LLMClient,
+    *,
+    system: str,
+    messages: list[Message],
+    tools: list[ToolSpec],
+    model: str,
+    max_tokens: int,
+) -> Iterator[ChatChunk]:
+    """Default chat_stream for providers that haven't implemented streaming.
+
+    Calls sync chat(), then yields a single message_stop chunk with the
+    full response attached. Callers that iterate see the complete answer
+    in one shot — no UX win, but the interface is satisfied.
+    """
+    resp = client.chat(
+        system=system, messages=messages, tools=tools, model=model, max_tokens=max_tokens
+    )
+    for tc in resp.tool_calls:
+        yield ChatChunk(kind="tool_use", tool_call=tc)
+    if resp.text:
+        yield ChatChunk(kind="text_delta", text=resp.text)
+    yield ChatChunk(
+        kind="message_stop",
+        stop_reason=resp.stop_reason,
+        final_response=resp,
+    )
 
 
 # --- Registry ---------------------------------------------------------------

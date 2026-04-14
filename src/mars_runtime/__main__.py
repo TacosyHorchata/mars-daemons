@@ -37,7 +37,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import llm_client, session_store
-from ._rpc import response_to_dict
+from ._rpc import chunk_to_wire, response_to_dict
 from .schema import AgentConfig
 from .session_store import InvalidSessionId
 
@@ -190,6 +190,60 @@ def _pump_user_input(worker: subprocess.Popen) -> None:
         _send_to_worker(worker, {"rpc": "eof"})
 
 
+def _handle_chat_request(
+    worker: subprocess.Popen,
+    llm: "llm_client.LLMClient",
+    req_id: int,
+    args: dict,
+) -> None:
+    """Drive a single chat_stream() call, forwarding every chunk as an
+    RPC message. Ends with either a chat_response (success, carries the
+    final Response) or a chat_error (SDK/network failure).
+
+    Raw SDK exception strings are NOT forwarded — some SDKs embed the
+    offending Authorization header or request body (which contains the
+    api_key) in error messages. Full detail goes to broker stderr for
+    operators; the worker sees only the exception type.
+    """
+    try:
+        stream = llm.chat_stream(**args)
+        final_response = None
+        final_stop_reason = None
+        for chunk in stream:
+            if chunk.kind == "message_stop":
+                final_response = chunk.final_response
+                final_stop_reason = chunk.stop_reason
+                break
+            _send_to_worker(
+                worker,
+                {"rpc": "chat_chunk", "id": req_id, "chunk": chunk_to_wire(chunk)},
+            )
+        _send_to_worker(
+            worker,
+            {
+                "rpc": "chat_response",
+                "id": req_id,
+                "response": response_to_dict(final_response) if final_response else None,
+                "stop_reason": final_stop_reason,
+            },
+        )
+    except Exception as e:
+        print(
+            f"[broker] LLM call failed ({type(e).__name__}): {e}",
+            file=sys.stderr,
+            flush=True,
+        )
+        _send_to_worker(
+            worker,
+            {
+                "rpc": "chat_error",
+                "id": req_id,
+                "error": f"{type(e).__name__} (detail suppressed; see broker stderr)",
+                "type": type(e).__name__,
+            },
+        )
+
+
 def _pump_worker_output(
     worker: subprocess.Popen,
     llm: "llm_client.LLMClient",
@@ -219,32 +273,7 @@ def _pump_worker_output(
         elif kind == "chat_request":
             req_id = msg["id"]
             args = msg["args"]
-            try:
-                resp = llm.chat(**args)
-                reply = {
-                    "rpc": "chat_response",
-                    "id": req_id,
-                    "response": response_to_dict(resp),
-                }
-            except Exception as e:
-                # Do NOT forward raw SDK exception strings — some SDKs
-                # embed the offending Authorization header or request
-                # body (which contains the api_key) in error messages.
-                # Log the full detail on broker stderr for operators,
-                # and send only the exception type + a generic message
-                # to the worker.
-                print(
-                    f"[broker] LLM call failed ({type(e).__name__}): {e}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                reply = {
-                    "rpc": "chat_error",
-                    "id": req_id,
-                    "error": f"{type(e).__name__} (detail suppressed; see broker stderr)",
-                    "type": type(e).__name__,
-                }
-            _send_to_worker(worker, reply)
+            _handle_chat_request(worker, llm, req_id, args)
         else:
             print(f"[broker] unknown rpc kind: {kind}", file=sys.stderr)
 

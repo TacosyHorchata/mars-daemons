@@ -10,12 +10,14 @@ Usage:
 from __future__ import annotations
 
 from .base import (
+    ChatChunk,
     LLMClient,
     Message,
     ProviderCollision,
     Response,
     ToolCall,
     ToolSpec,
+    fallback_chat_stream,
     get,
     infer_provider,
     load_all,
@@ -24,12 +26,14 @@ from .base import (
 )
 
 __all__ = [
+    "ChatChunk",
     "LLMClient",
     "Message",
     "ProviderCollision",
     "Response",
     "ToolCall",
     "ToolSpec",
+    "fallback_chat_stream",
     "get",
     "infer_provider",
     "load_all",

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from mars_runtime import __main__ as cli
-from mars_runtime.llm_client import Response
+from mars_runtime.llm_client import Response, fallback_chat_stream
 
 
 class _StubLLM:
@@ -23,6 +23,9 @@ class _StubLLM:
             stop_reason="end_turn",
             raw_content=[{"type": "text", "text": self._reply}],
         )
+
+    def chat_stream(self, **kwargs):
+        yield from fallback_chat_stream(self, **kwargs)
 
 
 @pytest.fixture

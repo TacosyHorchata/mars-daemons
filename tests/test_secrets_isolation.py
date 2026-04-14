@@ -229,6 +229,13 @@ def test_chat_error_does_not_forward_sdk_message_verbatim(monkeypatch, capsys):
                 "Invalid request: Authorization=Bearer sk-ant-this-should-not-leak"
             )
 
+        def chat_stream(self, **_):
+            # Stream-path MUST also raise — broker calls chat_stream now.
+            raise RuntimeError(
+                "Invalid request: Authorization=Bearer sk-ant-this-should-not-leak"
+            )
+            yield  # unreachable, makes this a generator
+
     # Simplest fake worker: stdout yields one chat_request, then EOF.
     # stdin is a writable sink the test inspects.
     class _FakeWorker:

@@ -24,12 +24,13 @@ import os
 import queue
 import sys
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 
 from . import events, session_store
-from ._rpc import response_from_dict
+from ._rpc import chunk_from_wire, response_from_dict
 from .agent import run
-from .llm_client import LLMClient, Message, Response, ToolSpec
+from .llm_client import ChatChunk, LLMClient, Message, Response, ToolSpec
 from .schema import AgentConfig
 from .tools import ToolRegistry, load_all
 
@@ -38,36 +39,85 @@ class BrokerDisconnected(RuntimeError):
     pass
 
 
-def _interpret_payload(payload: dict | None) -> Response:
-    # `assert` disappears under `python -O`; use an explicit exception so
-    # the protocol contract is enforced in all runtime modes.
-    if payload is None:
-        raise RuntimeError("broker returned empty payload")
-    if payload.get("rpc") == "chat_error":
-        err = payload.get("error", "unknown")
-        if payload.get("type") == "BrokerDisconnected":
-            raise BrokerDisconnected(err)
-        raise RuntimeError(f"broker chat error: {err}")
-    return response_from_dict(payload["response"])
-
-
 class _BrokerLLMClient:
-    """LLMClient proxy. Every chat() call round-trips to the broker.
+    """LLMClient proxy. Streams chunks from the broker over RPC.
 
-    Tolerates pre-delivery: the RPC reader may receive a chat_response
-    before chat() reserves its id (tests pre-script responses into stdin).
+    Every chat_stream() call sends a single chat_request and consumes a
+    queue of chunks until a terminal message_stop (or an exception from
+    a chat_error / broker-disconnect event).
 
-    If the broker disappears mid-chat (pipe closed, process crashed), all
-    pending waiters are failed with BrokenBroker via `fail_all_pending()`
-    so tools never hang forever.
+    chat() is a thin wrapper: consume the stream, return the final
+    Response. Tests and non-streaming callers use it unchanged.
+
+    Pre-delivery: the RPC reader may drop items into a queue for an id
+    before chat_stream() reserves that id (tests pre-script responses
+    into stdin). We detect a non-empty queue at request time and serve
+    from it without sending a fresh chat_request.
     """
 
     def __init__(self, writer: "_RPCWriter") -> None:
         self._writer = writer
         self._next_id = 0
-        self._pending: dict[int, tuple[threading.Event, dict | None]] = {}
+        self._pending: dict[int, "queue.Queue"] = {}
         self._lock = threading.Lock()
         self._disconnected = False
+
+    def _queue_for(self, req_id: int) -> "queue.Queue":
+        with self._lock:
+            q = self._pending.get(req_id)
+            if q is None:
+                q = queue.Queue()
+                self._pending[req_id] = q
+            return q
+
+    def chat_stream(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        model: str,
+        max_tokens: int,
+    ) -> Iterator[ChatChunk]:
+        with self._lock:
+            req_id = self._next_id
+            self._next_id += 1
+            existing_q = self._pending.get(req_id)
+            pre_delivered = existing_q is not None and not existing_q.empty()
+            disconnected = self._disconnected
+            if not pre_delivered and disconnected:
+                raise BrokerDisconnected("broker is gone; cannot send chat request")
+            if existing_q is None:
+                existing_q = queue.Queue()
+                self._pending[req_id] = existing_q
+        q = existing_q
+
+        if not pre_delivered:
+            self._writer.send(
+                {
+                    "rpc": "chat_request",
+                    "id": req_id,
+                    "args": {
+                        "system": system,
+                        "messages": messages,
+                        "tools": tools,
+                        "model": model,
+                        "max_tokens": max_tokens,
+                    },
+                }
+            )
+
+        try:
+            while True:
+                item = q.get()
+                if isinstance(item, Exception):
+                    raise item
+                yield item
+                if item.kind == "message_stop":
+                    break
+        finally:
+            with self._lock:
+                self._pending.pop(req_id, None)
 
     def chat(
         self,
@@ -78,72 +128,52 @@ class _BrokerLLMClient:
         model: str,
         max_tokens: int,
     ) -> Response:
-        with self._lock:
-            req_id = self._next_id
-            self._next_id += 1
-
-            pre_delivered = req_id in self._pending and self._pending[req_id][1] is not None
-            if pre_delivered:
-                # Response already arrived before chat() was called.
-                # Consume it without round-tripping.
-                _, payload = self._pending.pop(req_id)
-                return _interpret_payload(payload)
-
-            if self._disconnected:
-                raise BrokerDisconnected("broker is gone; cannot send chat request")
-
-            if req_id in self._pending:
-                ev, _ = self._pending[req_id]
-            else:
-                ev = threading.Event()
-                self._pending[req_id] = (ev, None)
-
-        self._writer.send(
-            {
-                "rpc": "chat_request",
-                "id": req_id,
-                "args": {
-                    "system": system,
-                    "messages": messages,
-                    "tools": tools,
-                    "model": model,
-                    "max_tokens": max_tokens,
-                },
-            }
-        )
-
-        ev.wait()
-        with self._lock:
-            _, payload = self._pending.pop(req_id)
-        return _interpret_payload(payload)
+        final: Response | None = None
+        for chunk in self.chat_stream(
+            system=system, messages=messages, tools=tools,
+            model=model, max_tokens=max_tokens,
+        ):
+            if chunk.kind == "message_stop":
+                final = chunk.final_response
+        if final is None:
+            raise RuntimeError("broker closed stream without final response")
+        return final
 
     def _deliver(self, req_id: int, payload: dict) -> None:
-        """Called by the RPC reader when a response lands."""
-        with self._lock:
-            if req_id in self._pending:
-                ev, _ = self._pending[req_id]
-                self._pending[req_id] = (ev, payload)
+        """Called by the RPC reader thread when a broker → worker message
+        lands. Translates wire payloads into queue items consumed by an
+        in-flight (or future) chat_stream()."""
+        q = self._queue_for(req_id)
+        rpc = payload.get("rpc")
+        if rpc == "chat_chunk":
+            q.put(chunk_from_wire(payload.get("chunk") or {}))
+        elif rpc == "chat_response":
+            resp_dict = payload.get("response")
+            final = response_from_dict(resp_dict) if resp_dict else None
+            q.put(
+                ChatChunk(
+                    kind="message_stop",
+                    stop_reason=payload.get("stop_reason"),
+                    final_response=final,
+                )
+            )
+        elif rpc == "chat_error":
+            err_type = payload.get("type")
+            err_msg = payload.get("error", "unknown")
+            if err_type == "BrokerDisconnected":
+                q.put(BrokerDisconnected(err_msg))
             else:
-                ev = threading.Event()
-                self._pending[req_id] = (ev, payload)
-            ev.set()
+                q.put(RuntimeError(f"broker chat error: {err_msg}"))
 
     def fail_all_pending(self, reason: str) -> None:
-        """Wake every still-waiting chat() with a synthetic broker-disconnected error.
-
-        Entries that already have a delivered payload are left alone so a
-        response that landed just before the pipe closed is not clobbered.
-        """
+        """Unblock every still-waiting chat_stream() with a synthetic
+        disconnect error. Pre-delivered queues keep their existing items
+        (we just append the error behind them) so valid responses that
+        landed before the pipe closed are still served."""
         with self._lock:
             self._disconnected = True
-            for req_id, (ev, payload) in list(self._pending.items()):
-                if payload is not None:
-                    continue
-                self._pending[req_id] = (
-                    ev,
-                    {"rpc": "chat_error", "id": req_id, "error": reason, "type": "BrokerDisconnected"},
-                )
-                ev.set()
+            for q in list(self._pending.values()):
+                q.put(BrokerDisconnected(reason))
 
 
 class _RPCWriter:
@@ -195,7 +225,7 @@ def _stdin_reader(
             continue
 
         kind = msg.get("rpc")
-        if kind in ("chat_response", "chat_error"):
+        if kind in ("chat_chunk", "chat_response", "chat_error"):
             req_id = msg["id"]
             broker_client._deliver(req_id, msg)
         elif kind == "user_input":

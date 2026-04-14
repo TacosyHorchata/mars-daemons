@@ -8,9 +8,10 @@ implementation = translate Anthropic content-block format ↔ Gemini
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
-from .base import LLMClient, Message, Response, ToolSpec, register
+from .base import ChatChunk, LLMClient, Message, Response, ToolSpec, register
 
 
 class GeminiClient:
@@ -30,6 +31,17 @@ class GeminiClient:
         model: str,
         max_tokens: int,
     ) -> Response:
+        raise NotImplementedError
+
+    def chat_stream(  # pragma: no cover - unreachable
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        model: str,
+        max_tokens: int,
+    ) -> Iterator[ChatChunk]:
         raise NotImplementedError
 
 

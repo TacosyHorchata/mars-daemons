@@ -116,13 +116,44 @@ def run(
             messages.append({"role": "user", "content": [{"type": "text", "text": user_text}]})
 
             for iteration in range(MAX_TOOL_ITERATIONS):
-                resp = llm.chat(
-                    system=system,
-                    messages=messages,
-                    tools=tools.specs(),
-                    model=config.model,
-                    max_tokens=config.max_tokens,
-                )
+                # Consume the stream: emit assistant_chunk per text delta
+                # for real-time UX, capture the final Response at
+                # message_stop. Non-streaming clients subscribe to
+                # assistant_text (still emitted below) or just wait for
+                # turn_completed.
+                #
+                # If the stream raises mid-flight (broker chat_error,
+                # network drop, SDK exception), roll back this turn and
+                # abort cleanly instead of letting the exception escape
+                # to worker main and kill the whole session.
+                resp = None
+                try:
+                    for chunk in llm.chat_stream(
+                        system=system,
+                        messages=messages,
+                        tools=tools.specs(),
+                        model=config.model,
+                        max_tokens=config.max_tokens,
+                    ):
+                        if chunk.kind == "text_delta":
+                            emit("assistant_chunk", delta=chunk.text)
+                        elif chunk.kind == "message_stop":
+                            resp = chunk.final_response
+                except Exception as e:
+                    emit(
+                        "turn_aborted",
+                        reason="chat_stream_error",
+                        detail=f"{type(e).__name__}: {e}",
+                        iteration=iteration,
+                    )
+                    del messages[turn_start:]
+                    break
+                if resp is None:
+                    # Provider returned no final_response — treat as an
+                    # empty turn rather than crash the loop.
+                    emit("turn_aborted", reason="no_final_response", iteration=iteration)
+                    del messages[turn_start:]
+                    break
                 stop_reason = resp.stop_reason
 
                 # Detect duplicate tool_use_ids BEFORE appending the assistant

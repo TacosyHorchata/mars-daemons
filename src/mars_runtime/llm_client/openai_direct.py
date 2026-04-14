@@ -16,10 +16,16 @@ Model field in agent.yaml maps directly to the OpenAI model id
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any
 
-from .azure_openai import _from_openai_response, _to_openai_messages, _to_openai_tools
-from .base import LLMClient, Message, Response, ToolSpec, register
+from .azure_openai import (
+    _from_openai_response,
+    _stream_translate,
+    _to_openai_messages,
+    _to_openai_tools,
+)
+from .base import ChatChunk, LLMClient, Message, Response, ToolSpec, register
 
 
 class OpenAIClient:
@@ -54,6 +60,27 @@ class OpenAIClient:
         )
 
         return _from_openai_response(resp)
+
+    def chat_stream(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        model: str,
+        max_tokens: int,
+    ) -> Iterator[ChatChunk]:
+        openai_messages = _to_openai_messages(system, messages)
+        openai_tools = _to_openai_tools(tools)
+
+        sdk_stream = self._client.chat.completions.create(
+            model=model,
+            messages=openai_messages,
+            tools=openai_tools or None,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        yield from _stream_translate(sdk_stream)
 
 
 def _factory(**kwargs: Any) -> LLMClient:

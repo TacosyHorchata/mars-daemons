@@ -293,5 +293,5 @@ def test_client_raises_if_openai_not_installed(monkeypatch):
         return real_import(name, *a, **kw)
 
     monkeypatch.setattr(builtins, "__import__", _no_openai)
-    with pytest.raises(ImportError, match="uv sync --extra azure"):
+    with pytest.raises(ImportError, match="uv sync"):
         AzureOpenAIClient()

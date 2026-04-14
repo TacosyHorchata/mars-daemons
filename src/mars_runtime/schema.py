@@ -62,7 +62,7 @@ class AgentConfig(BaseModel):
     provider: NonEmptyStr | None = Field(
         default=None,
         description=(
-            "LLM provider key: anthropic | azure_openai | gemini. "
+            "LLM provider key: anthropic | openai | azure_openai | gemini. "
             "If None, inferred from model name prefix."
         ),
     )

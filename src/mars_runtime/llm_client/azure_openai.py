@@ -11,7 +11,7 @@ Config via env (read by the openai SDK):
     OPENAI_API_VERSION         (e.g. "2024-10-21")
     The `model` field in agent.yaml is the Azure *deployment* name.
 
-Install: uv sync --extra azure  (brings `openai>=1.0`).
+`openai>=1.0` is a required runtime dependency.
 """
 
 from __future__ import annotations
@@ -36,10 +36,10 @@ class AzureOpenAIClient:
     def __init__(self, **sdk_kwargs: Any) -> None:
         try:
             from openai import AzureOpenAI
-        except ImportError as e:  # pragma: no cover - optional dep path
+        except ImportError as e:  # pragma: no cover
             raise ImportError(
-                "The azure_openai provider needs `openai>=1.0`. "
-                "Install with: uv sync --extra azure"
+                "The azure_openai provider needs `openai>=1.0` installed "
+                "(it is a required runtime dependency; run `uv sync`)."
             ) from e
 
         self._client = AzureOpenAI(**sdk_kwargs)
@@ -231,4 +231,7 @@ def _factory(**kwargs: Any) -> LLMClient:
     return AzureOpenAIClient(**kwargs)
 
 
-register("azure_openai", _factory, model_prefixes=["gpt", "o1", "o3"])
+# No model_prefixes: Azure deployments use custom deployment names
+# (e.g., "my-gpt4-prod") that don't match gpt-*. Set `provider: azure_openai`
+# explicitly in agent.yaml to route here.
+register("azure_openai", _factory)

@@ -12,6 +12,7 @@ def test_load_all_registers_all_providers():
     names = registered()
     assert "anthropic" in names
     assert "azure_openai" in names
+    assert "openai" in names
     assert "gemini" in names
 
 
@@ -22,10 +23,14 @@ def test_get_unknown_provider_raises():
 
 
 def test_infer_provider_from_model_prefix():
+    base.load_all()
     assert infer_provider("claude-opus-4-5") == "anthropic"
     assert infer_provider("claude-sonnet-4-5") == "anthropic"
-    assert infer_provider("gpt-4o") == "azure_openai"
-    assert infer_provider("o1-preview") == "azure_openai"
+    # gpt-* / o1-* / o3-* → OpenAI direct (api.openai.com).
+    # Azure deployments use custom names and require `provider: azure_openai`.
+    assert infer_provider("gpt-5.4") == "openai"
+    assert infer_provider("gpt-4o") == "openai"
+    assert infer_provider("o1-preview") == "openai"
     assert infer_provider("gemini-1.5-pro") == "gemini"
 
 

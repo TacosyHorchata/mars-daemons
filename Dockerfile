@@ -1,12 +1,16 @@
 # mars-runtime container
 # ----------------------
-# Entrypoint: `python -m mars_runtime /workspace/agent.yaml`. The process
-# reads user turns from stdin and emits JSON-line events to stdout.
+# Entrypoint: `python -m mars_runtime <agent.yaml> | --resume <id> | --list`.
+# Reads user turns from stdin, emits JSON-line events to stdout.
 #
-# Env contract:
-#   * ANTHROPIC_API_KEY — required
-#   * MARS_AGENT_YAML   — optional path override (default /workspace/agent.yaml)
-#   * anything declared in AgentConfig.env — forwarded by the deploy layer
+# Volumes (mount a Fly volume at /data for persistence):
+#   /data/workspace/          git repo, agent cwd
+#   /data/sessions/           session snapshots (supervisor-only)
+#
+# Env:
+#   ANTHROPIC_API_KEY — required
+#   MARS_DATA_DIR     — defaults to /data
+#   anything in AgentConfig.env — forwarded by the deploy layer
 
 FROM python:3.11-slim
 
@@ -22,9 +26,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # tini for clean SIGTERM forwarding. ripgrep powers the `grep` tool (falls
 # back to pure-python if missing, but rg is ~100x faster on large trees).
+# git is required by the supervisor for per-turn workspace commits.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends tini ripgrep; \
+    apt-get install -y --no-install-recommends tini ripgrep git; \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
@@ -38,14 +43,14 @@ RUN useradd -m -u 1000 -s /bin/bash mars
 WORKDIR /app
 COPY --chown=mars:mars src /app/runtime-src
 
-# Workspace dir where each daemon's agent.yaml + CLAUDE.md live. Mounted
-# or populated at deploy time by `mars deploy`.
-RUN mkdir -p /workspace && chown -R mars:mars /workspace
+# /data is the mount point for the per-entorno Fly volume. If no volume is
+# mounted (e.g. `docker run` without -v), these dirs just live inside the
+# container filesystem and disappear on exit.
+RUN mkdir -p /data/workspace /data/sessions && chown -R mars:mars /data
 
 USER mars
 
 ENV PYTHONPATH="/app/runtime-src" \
-    MARS_AGENT_YAML="/workspace/agent.yaml"
+    MARS_DATA_DIR="/data"
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["sh", "-c", "python -m mars_runtime \"$MARS_AGENT_YAML\""]
+ENTRYPOINT ["/usr/bin/tini", "--", "python", "-m", "mars_runtime"]

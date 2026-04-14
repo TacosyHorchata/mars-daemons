@@ -59,6 +59,13 @@ class AgentConfig(BaseModel):
         default="/workspace",
         description="Absolute working directory where the daemon runs.",
     )
+    provider: NonEmptyStr | None = Field(
+        default=None,
+        description=(
+            "LLM provider key: anthropic | azure_openai | gemini. "
+            "If None, inferred from model name prefix."
+        ),
+    )
 
     @field_validator("name")
     @classmethod

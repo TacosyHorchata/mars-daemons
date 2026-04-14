@@ -1,0 +1,36 @@
+# fly.toml — mars-daemons entorno template
+#
+# One Fly app per entorno. The app gets one volume mounted at /data,
+# which holds the workspace git repo and the session snapshots.
+#
+# `fly launch --copy-config --no-deploy` after cloning, then set the
+# app name, allocate a volume, and deploy:
+#
+#   fly apps create <name>
+#   fly volume create mars_data --region <region> --size 1
+#   fly deploy
+#
+# To fork an entorno: create a second app, then
+#   fly volume fork --source-app <src> mars_data
+# or `cp -r` between mounted volumes off-Fly.
+
+app = "mars-daemon"
+primary_region = "iad"
+
+[build]
+dockerfile = "Dockerfile"
+
+[[mounts]]
+source = "mars_data"
+destination = "/data"
+initial_size = "1gb"
+
+[env]
+MARS_DATA_DIR = "/data"
+
+[processes]
+app = ""  # runtime is driven by stdin, typically via `fly ssh console` or a sidecar
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "512mb"

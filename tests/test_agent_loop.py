@@ -238,6 +238,144 @@ def test_max_tool_iterations_aborts_runaway_loop(agent_config, capsys):
     assert aborted[0]["limit"] == MAX_TOOL_ITERATIONS
 
 
+def test_persists_session_and_commits_on_clean_turn(agent_config, capsys, tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    ws = tmp_path / "ws"
+    (ws).mkdir()
+
+    llm = _FakeLLM([Response(
+        text="ok", tool_calls=[], stop_reason="end_turn",
+        raw_content=[{"type": "text", "text": "ok"}],
+    )])
+    tools = ToolRegistry(["read"])
+
+    run(
+        agent_config, llm, tools,
+        stdin=io.StringIO("hello\n"),
+        sessions_dir=sessions_dir,
+        session_id="sess_ee0000000000000000000001",
+        workspace_path=ws,
+    )
+
+    events = _events(capsys.readouterr().out)
+    types = [e["type"] for e in events]
+    assert "session_saved" in types
+    # No workspace changes, so no turn_committed should fire.
+    assert "turn_committed" not in types
+
+    session_file = sessions_dir / "sess_ee0000000000000000000001.json"
+    assert session_file.exists()
+    data = json.loads(session_file.read_text())
+    assert data["agent_name"] == "test"
+    assert data["agent_config"]["name"] == "test"
+    assert len(data["messages"]) == 2  # user + assistant
+
+
+def test_commits_fire_when_workspace_is_dirty(agent_config, capsys, tmp_path, monkeypatch):
+    """When the tool mutates the workspace, turn_committed should fire."""
+    sessions_dir = tmp_path / "sessions"
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    # The fake LLM triggers a `bash` that creates a file, then closes.
+    from mars_runtime.agent import MAX_TOOL_ITERATIONS  # noqa: F401
+    llm = _FakeLLM([
+        Response(
+            text="",
+            tool_calls=[ToolCall(id="tu_1", name="bash", input={"command": f"touch {ws}/marker"})],
+            stop_reason="tool_use",
+            raw_content=[{"type": "tool_use", "id": "tu_1", "name": "bash", "input": {"command": f"touch {ws}/marker"}}],
+        ),
+        Response(text="done", tool_calls=[], stop_reason="end_turn",
+                 raw_content=[{"type": "text", "text": "done"}]),
+    ])
+    tools = ToolRegistry(["bash"])
+
+    run(
+        agent_config, llm, tools,
+        stdin=io.StringIO("create a marker\n"),
+        sessions_dir=sessions_dir,
+        session_id="sess_ee0000000000000000000002",
+        workspace_path=ws,
+    )
+
+    events = _events(capsys.readouterr().out)
+    committed = [e for e in events if e["type"] == "turn_committed"]
+    assert committed, f"expected turn_committed, got {[e['type'] for e in events]}"
+    assert committed[0]["turn_number"] == 1
+    assert len(committed[0]["commit_sha"]) == 40
+
+
+def test_duplicate_tool_use_does_not_persist(agent_config, capsys, tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    llm = _FakeLLM([
+        Response(
+            text="",
+            tool_calls=[
+                ToolCall(id="tu_dup", name="read", input={"file_path": "/tmp/a"}),
+                ToolCall(id="tu_dup", name="read", input={"file_path": "/tmp/b"}),
+            ],
+            stop_reason="tool_use",
+            raw_content=[
+                {"type": "tool_use", "id": "tu_dup", "name": "read", "input": {"file_path": "/tmp/a"}},
+                {"type": "tool_use", "id": "tu_dup", "name": "read", "input": {"file_path": "/tmp/b"}},
+            ],
+        ),
+    ])
+    tools = ToolRegistry(["read"])
+
+    run(
+        agent_config, llm, tools,
+        stdin=io.StringIO("go\n"),
+        sessions_dir=sessions_dir,
+        session_id="sess_ee0000000000000000000003",
+        workspace_path=ws,
+    )
+
+    events = _events(capsys.readouterr().out)
+    types = [e["type"] for e in events]
+    assert "turn_aborted" in types
+    assert "session_saved" not in types
+    assert "turn_committed" not in types
+    # Session file also doesn't exist — nothing was persisted.
+    assert not (sessions_dir / "sess_ee0000000000000000000003.json").exists()
+
+
+def test_resume_continues_from_start_messages(agent_config, capsys, tmp_path):
+    sessions_dir = tmp_path / "sessions"
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    prior = [
+        {"role": "user", "content": [{"type": "text", "text": "turn one"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "done one"}]},
+    ]
+
+    llm = _FakeLLM([Response(
+        text="done two", tool_calls=[], stop_reason="end_turn",
+        raw_content=[{"type": "text", "text": "done two"}],
+    )])
+    tools = ToolRegistry(["read"])
+
+    run(
+        agent_config, llm, tools,
+        stdin=io.StringIO("turn two\n"),
+        sessions_dir=sessions_dir,
+        session_id="sess_ee0000000000000000000004",
+        workspace_path=ws,
+        start_messages=prior,
+    )
+
+    data = json.loads((sessions_dir / "sess_ee0000000000000000000004.json").read_text())
+    user_turns = [m for m in data["messages"] if m["role"] == "user" and any(b.get("type") == "text" for b in m["content"])]
+    assert len(user_turns) == 2
+    assert user_turns[0]["content"][0]["text"] == "turn one"
+    assert user_turns[1]["content"][0]["text"] == "turn two"
+
+
 def test_tool_error_is_reported_back_to_llm(agent_config, capsys):
     """When a tool returns is_error=True, the agent should feed the error
     back to the LLM as a tool_result with is_error, not crash the loop."""

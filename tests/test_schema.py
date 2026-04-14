@@ -36,6 +36,21 @@ def test_defaults(tmp_path: Path):
     assert cfg.env == []
     assert cfg.tools == []
     assert cfg.workdir == "/workspace"
+    assert cfg.provider is None  # None means "infer from model"
+
+
+def test_provider_explicit(tmp_path: Path):
+    p = tmp_path / "azure.yaml"
+    p.write_text(
+        "name: azure-agent\n"
+        "description: uses Azure OpenAI\n"
+        "system_prompt_path: ./CLAUDE.md\n"
+        "model: my-gpt4-deployment\n"
+        "provider: azure_openai\n"
+    )
+    cfg = AgentConfig.from_yaml_file(p)
+    assert cfg.provider == "azure_openai"
+    assert cfg.model == "my-gpt4-deployment"
 
 
 def test_old_runtime_field_rejected(tmp_path: Path):

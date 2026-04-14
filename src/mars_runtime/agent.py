@@ -13,6 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
 
+from . import session_store, workspace
 from .events import emit
 from .llm_client import LLMClient, Message
 from .schema import AgentConfig
@@ -42,9 +43,24 @@ def run(
     tools: ToolRegistry,
     *,
     stdin: TextIO | None = None,
+    sessions_dir: Path | None = None,
+    session_id: str | None = None,
+    workspace_path: Path | None = None,
+    start_messages: list[Message] | None = None,
 ) -> None:
     system = Path(config.system_prompt_path).read_text(encoding="utf-8")
-    messages: list[Message] = []
+    messages: list[Message] = list(start_messages) if start_messages else []
+
+    persist_args = (sessions_dir is not None, session_id is not None)
+    if any(persist_args) and not all(persist_args):
+        raise ValueError(
+            "sessions_dir and session_id must both be provided or both be None"
+        )
+    persist = all(persist_args)
+    do_git = workspace_path is not None
+
+    if do_git:
+        workspace.init_if_needed(workspace_path)
 
     emit(
         "session_started",
@@ -52,10 +68,36 @@ def run(
         model=config.model,
         cwd=config.workdir,
         tools=tools.names(),
+        session_id=session_id,
     )
+
+    # Turn numbering: each user turn → one commit if files changed. Count
+    # existing user-role text messages so resumed sessions keep advancing.
+    turn_number = sum(1 for m in messages if m["role"] == "user" and _is_user_text(m)) + 1
 
     turns = _read_turns(stdin if stdin is not None else sys.stdin)
     stop_reason: str | None = None
+
+    def _persist_turn(preview: str) -> None:
+        # Commit first, then snapshot — so if git fails, the session file
+        # does not silently advance past the last durable commit. If the
+        # snapshot fails after the commit, on next resume the agent sees
+        # messages from turn N-1 and a workspace at turn N. That mismatch
+        # is recoverable (agent re-does work) rather than corrupting the
+        # audit trail.
+        if do_git:
+            sha = workspace.commit_turn(workspace_path, turn_number, preview)  # type: ignore[arg-type]
+            if sha:
+                emit("turn_committed", commit_sha=sha, turn_number=turn_number)
+        if persist:
+            session_store.save(
+                sessions_dir,  # type: ignore[arg-type]
+                session_id,  # type: ignore[arg-type]
+                config.name,
+                config.model_dump(),
+                messages,
+            )
+            emit("session_saved", session_id=session_id)
 
     try:
         for user_text in turns:
@@ -94,7 +136,8 @@ def run(
                     # Roll back everything added during this turn so history
                     # stays valid. Truncating to turn_start drops the user
                     # turn plus any assistant/tool_result pairs we appended
-                    # during the inner loop.
+                    # during the inner loop. No persist/commit — the rollback
+                    # means this turn didn't happen.
                     del messages[turn_start:]
                     break
 
@@ -108,6 +151,8 @@ def run(
 
                 if not resp.tool_calls:
                     emit("turn_completed", stop_reason=stop_reason)
+                    _persist_turn(user_text[:60])
+                    turn_number += 1
                     break
 
                 tool_result_blocks: list[dict] = []
@@ -131,14 +176,23 @@ def run(
                     )
                 messages.append({"role": "user", "content": tool_result_blocks})
             else:
-                # Loop exhausted MAX_TOOL_ITERATIONS. Emit abort event. The
-                # incomplete turn stays in history — future turns start from
-                # a potentially messy state, which is acceptable for v0 but
-                # worth revisiting if it causes regressions.
+                # Loop exhausted MAX_TOOL_ITERATIONS. Messages were not
+                # rolled back — memory reflects the incomplete turn, so
+                # persist it (mirror in-memory semantics).
                 emit(
                     "turn_aborted",
                     reason="max_tool_iterations",
                     limit=MAX_TOOL_ITERATIONS,
                 )
+                _persist_turn(user_text[:60])
+                turn_number += 1
     finally:
         emit("session_ended", stop_reason=stop_reason)
+
+
+def _is_user_text(message: Message) -> bool:
+    """True if this is a user turn (text input), not a tool_result batch."""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(block.get("type") == "text" for block in content)

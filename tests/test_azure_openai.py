@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from mars_runtime.llm_client.azure_openai import (
+from mars_runtime.providers.azure_openai import (
     AzureOpenAIClient,
     _from_openai_response,
     _to_openai_messages,

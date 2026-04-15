@@ -15,8 +15,8 @@ import sys
 import threading
 from pathlib import Path
 
-from ..agent import run
-from ..llm_client import Message
+from ..runtime.agent_loop import run
+from ..providers import Message
 from ..schema import AgentConfig
 from ..tools import ToolRegistry, load_all
 from .broker_client import _BrokerLLMClient

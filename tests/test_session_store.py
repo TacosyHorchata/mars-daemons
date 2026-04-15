@@ -6,7 +6,7 @@ import json
 import time
 from pathlib import Path
 
-from mars_runtime import session_store
+from mars_runtime.storage import sessions as session_store
 
 
 def test_new_id_is_prefixed_and_unique():

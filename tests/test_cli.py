@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from mars_runtime import __main__ as cli
-from mars_runtime.llm_client import Response, fallback_chat_stream
+from mars_runtime.providers import Response, fallback_chat_stream
 
 
 class _StubLLM:
@@ -140,7 +140,7 @@ def test_git_subprocess_error_is_caught(yaml_and_prompt, tmp_path, capsys, monke
     import json
     import subprocess
     from mars_runtime import worker as _worker
-    from mars_runtime.llm_client import Response
+    from mars_runtime.providers import Response
 
     data_dir = tmp_path / "data"
     (data_dir / "workspace").mkdir(parents=True)
@@ -173,7 +173,7 @@ def test_git_subprocess_error_is_caught(yaml_and_prompt, tmp_path, capsys, monke
         + json.dumps({"rpc": "eof"}) + "\n"
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(stdin_script))
-    monkeypatch.setattr("mars_runtime.workspace.commit_turn", _broken_commit)
+    monkeypatch.setattr("mars_runtime.storage.workspace.commit_turn", _broken_commit)
 
     rc = _worker.main([
         "--agent-json", json.dumps(config.model_dump()),

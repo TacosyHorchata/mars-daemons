@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mars_runtime.llm_client import base, get, infer_provider, register, registered
+from mars_runtime.providers import base, get, infer_provider, register, registered
 
 
 def test_load_all_registers_all_providers():
@@ -57,7 +57,7 @@ def test_gemini_is_registered_but_unusable():
 
 def test_name_collision_raises():
     """Two providers registering the same name with different factories is a bug."""
-    from mars_runtime.llm_client import ProviderCollision
+    from mars_runtime.providers import ProviderCollision
 
     def _f1(**_):
         return object()
@@ -71,7 +71,7 @@ def test_name_collision_raises():
 
 
 def test_prefix_collision_raises():
-    from mars_runtime.llm_client import ProviderCollision
+    from mars_runtime.providers import ProviderCollision
 
     register(
         "prefix_test_a",

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .llm_client import ChatChunk, Response, ToolCall
+from .providers import ChatChunk, Response, ToolCall
 
 
 def response_to_dict(resp: Response) -> dict[str, Any]:

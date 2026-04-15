@@ -89,5 +89,5 @@ def _install_event_forwarder(writer: _RPCWriter) -> None:
     # `from .events import emit`, which binds to the original function
     # reference — so also replace the reference agent.py uses.
     events.emit = _emit_via_rpc  # type: ignore[assignment]
-    from .. import agent as _agent_mod
+    from ..runtime import agent_loop as _agent_mod
     _agent_mod.emit = _emit_via_rpc  # type: ignore[assignment]

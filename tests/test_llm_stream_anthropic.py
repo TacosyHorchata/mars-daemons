@@ -11,8 +11,8 @@ from typing import Any
 
 import pytest
 
-from mars_runtime.llm_client import ChatChunk
-from mars_runtime.llm_client.anthropic import AnthropicClient
+from mars_runtime.providers import ChatChunk
+from mars_runtime.providers.anthropic import AnthropicClient
 
 
 # --- Fake event factories (match anthropic SDK event shape minimally) ------
@@ -216,7 +216,7 @@ def test_stream_passes_kwargs_to_sdk():
 
 def test_fallback_chat_stream_yields_single_message_stop():
     """Providers that don't implement streaming should fall back cleanly."""
-    from mars_runtime.llm_client import Response, ToolCall, fallback_chat_stream
+    from mars_runtime.providers import Response, ToolCall, fallback_chat_stream
 
     class _SyncOnlyClient:
         def chat(self, **_):
@@ -245,6 +245,6 @@ def test_fallback_chat_stream_yields_single_message_stop():
 
 def test_client_satisfies_llmclient_protocol():
     """AnthropicClient must still satisfy the Protocol now that chat_stream exists."""
-    from mars_runtime.llm_client import LLMClient
+    from mars_runtime.providers import LLMClient
     client = _make_client(_FakeAnthropicSDK([_message_delta("end_turn")]))
     assert isinstance(client, LLMClient)

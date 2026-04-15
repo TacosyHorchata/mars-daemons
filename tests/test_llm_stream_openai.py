@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from mars_runtime.llm_client.azure_openai import _stream_translate
+from mars_runtime.providers.azure_openai import _stream_translate
 
 
 # --- Fake chunk factory ----------------------------------------------------
@@ -139,7 +139,7 @@ def test_stream_max_tokens_stop_reason():
 
 def test_stream_openai_direct_client_uses_same_helper():
     """openai_direct.OpenAIClient.chat_stream must route through _stream_translate."""
-    from mars_runtime.llm_client.openai_direct import OpenAIClient
+    from mars_runtime.providers.openai_direct import OpenAIClient
 
     class _FakeChatCompletions:
         def __init__(self, stream): self._stream = stream

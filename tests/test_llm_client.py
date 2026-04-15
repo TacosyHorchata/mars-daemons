@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from mars_runtime.llm_client import LLMClient, Response, ToolCall
-from mars_runtime.llm_client.anthropic import AnthropicClient
+from mars_runtime.providers import LLMClient, Response, ToolCall
+from mars_runtime.providers.anthropic import AnthropicClient
 
 
 class _FakeTextBlock:

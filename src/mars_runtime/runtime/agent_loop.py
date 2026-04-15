@@ -13,11 +13,11 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import TextIO
 
-from . import session_store, workspace
-from .events import emit
-from .llm_client import LLMClient, Message
-from .schema import AgentConfig
-from .tools import ToolRegistry
+from ..storage import sessions as session_store, workspace
+from ..events import emit
+from ..providers import LLMClient, Message
+from ..schema import AgentConfig
+from ..tools import ToolRegistry
 
 
 def _read_turns(stream: TextIO) -> Iterator[str]:

@@ -17,7 +17,7 @@ import threading
 from collections.abc import Iterator
 
 from .._rpc import chunk_from_wire, response_from_dict
-from ..llm_client import ChatChunk, Message, Response, ToolSpec
+from ..providers import ChatChunk, Message, Response, ToolSpec
 
 
 class BrokerDisconnected(RuntimeError):

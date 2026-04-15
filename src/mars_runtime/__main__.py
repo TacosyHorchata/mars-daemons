@@ -37,14 +37,15 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from . import llm_client, session_store
+from . import providers as llm_client
+from .storage import sessions as session_store
 from ._paths import data_dir as _data_dir
 from .broker import env as broker_env
 from .broker import hardening as broker_hardening
 from .broker import process as broker_process
 from .cli import files as _cli_files
 from .schema import AgentConfig
-from .session_store import InvalidSessionId
+from .storage.sessions import InvalidSessionId
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

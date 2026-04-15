@@ -319,7 +319,7 @@ def test_dispatch_preserves_yaml_named_push(tmp_path, monkeypatch):
          patch("mars_runtime.__main__._harden_broker"):
         parse_args.return_value = type("X", (), {"list_sessions": True, "resume": None, "yaml_path": None, "data_dir": None})()
         # Patch session_store.list_recent to avoid touching disk
-        with patch("mars_runtime.__main__.session_store.list_recent", return_value=[]):
+        with patch("mars_runtime.storage.sessions.list_recent", return_value=[]):
             rc = main([str(yaml)])
 
     assert rc == 0

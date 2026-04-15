@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from mars_runtime.agent import run
-from mars_runtime.llm_client import Response, ToolCall, fallback_chat_stream
+from mars_runtime.runtime.agent_loop import run
+from mars_runtime.providers import Response, ToolCall, fallback_chat_stream
 from mars_runtime.schema import AgentConfig
 from mars_runtime.tools import ToolRegistry, load_all
 
@@ -219,7 +219,7 @@ def test_duplicate_ids_after_successful_round_rolls_back_cleanly(agent_config, c
 
 def test_max_tool_iterations_aborts_runaway_loop(agent_config, capsys):
     """If the LLM keeps returning tool_calls forever, we abort at the cap."""
-    from mars_runtime.agent import MAX_TOOL_ITERATIONS
+    from mars_runtime.runtime.agent_loop import MAX_TOOL_ITERATIONS
 
     # Infinite tool-call loop: every response asks for another read.
     def _runaway():
@@ -248,7 +248,7 @@ def test_max_tool_iterations_aborts_runaway_loop(agent_config, capsys):
 def test_agent_survives_mid_stream_error(agent_config, capsys):
     """If chat_stream raises mid-stream (partial chunks already emitted),
     agent.run() must emit turn_aborted and accept the next turn, not crash."""
-    from mars_runtime.llm_client import ChatChunk
+    from mars_runtime.providers import ChatChunk
 
     class _MidStreamFailLLM:
         def chat(self, **_):
@@ -280,7 +280,7 @@ def test_agent_survives_mid_stream_error(agent_config, capsys):
 
 def test_agent_emits_assistant_chunk_events(agent_config, capsys):
     """Streaming path: agent emits assistant_chunk per text_delta from the LLM."""
-    from mars_runtime.llm_client import ChatChunk
+    from mars_runtime.providers import ChatChunk
 
     class _StreamingLLM:
         def __init__(self):
@@ -356,7 +356,7 @@ def test_commits_fire_when_workspace_is_dirty(agent_config, capsys, tmp_path, mo
     ws.mkdir()
 
     # The fake LLM triggers a `bash` that creates a file, then closes.
-    from mars_runtime.agent import MAX_TOOL_ITERATIONS  # noqa: F401
+    from mars_runtime.runtime.agent_loop import MAX_TOOL_ITERATIONS  # noqa: F401
     llm = _FakeLLM([
         Response(
             text="",

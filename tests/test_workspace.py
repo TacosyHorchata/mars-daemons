@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from mars_runtime import workspace
+from mars_runtime.storage import workspace
 
 
 def _git_log_count(ws: Path) -> int:

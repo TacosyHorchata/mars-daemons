@@ -26,7 +26,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from .. import llm_client
+from .. import providers as llm_client
 from .._rpc import chunk_to_wire, response_to_dict
 from ..schema import AgentConfig
 from .env import build_worker_env

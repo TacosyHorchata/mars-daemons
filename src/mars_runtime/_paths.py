@@ -1,7 +1,8 @@
 """Shared path resolution. Read once, used by CLI and runtime.
 
 Kept as an underscore-prefixed module so it's clearly internal; the
-public config surface is `config.py` / `api.py` (planned).
+public config surface is `config.py` (AgentConfig + loading) and
+`api.py` (embedding entrypoints).
 """
 
 from __future__ import annotations

@@ -35,9 +35,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import resource
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -47,7 +45,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from . import llm_client, session_store
+from ._paths import data_dir as _data_dir
 from ._rpc import chunk_to_wire, response_to_dict
+from .cli import files as _cli_files
 from .schema import AgentConfig
 from .session_store import InvalidSessionId
 
@@ -73,9 +73,9 @@ _ALWAYS_STRIP_EXACT = frozenset(
 )
 
 
-def _data_dir(override: str | None) -> Path:
-    raw = override or os.environ.get("MARS_DATA_DIR") or "./.mars-data"
-    return Path(raw).resolve()
+#  `_data_dir` moved to `mars_runtime._paths` so the cli module can use it
+# without back-importing from __main__ (which would double-load the module).
+# The name is aliased at the top-level import for existing call sites.
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -370,231 +370,6 @@ def _ingest_secrets_fd() -> None:
             os.environ[k] = v
 
 
-# ---------------------------------------------------------------------------
-# File transfer — user pushes/pulls files into/out of the entorno workspace.
-# This surface is NOT available to the agent. It is a host-side CLI only.
-# ---------------------------------------------------------------------------
-
-_FLY_URL_RE = re.compile(r"^fly://([a-z0-9][a-z0-9-]*)/(.+)$")
-
-# Basenames the agent must not overwrite via its own tools; also prevented
-# on push so a user-supplied file cannot silently replace agent config.
-_PROTECTED_BASENAMES = frozenset({"CLAUDE.md", "AGENTS.md", "agent.yaml"})
-
-
-def _parse_fly_url(s: str) -> tuple[str, str] | None:
-    m = _FLY_URL_RE.match(s)
-    if not m:
-        return None
-    return m.group(1), m.group(2)
-
-
-def _validate_fly_remote(remote: str) -> None:
-    """Apply the same confinement rules to Fly remote paths as we do for
-    local workspace paths.
-
-    - Reject absolute paths (they would escape /data/workspace prefix).
-    - Reject any component that contains `..` (string normalization on
-      the remote SFTP server may resolve the traversal).
-    - Reject whitespace and control characters (would break the `put/get`
-      command on `fly ssh sftp shell`'s single-line parser, and may open
-      injection depending on how Fly handles CR/LF).
-    - Reject protected agent-config basenames.
-    """
-    if remote.startswith("/"):
-        raise ValueError(
-            f"Fly remote path must be relative to /data/workspace, "
-            f"got absolute {remote!r}"
-        )
-    # PosixPath normalizes slashes but keeps `..` components as separate
-    # parts, which is what we want to detect.
-    parts = [p for p in remote.split("/") if p]
-    if any(p == ".." for p in parts):
-        raise ValueError(
-            f"Fly remote path may not contain '..' segments: {remote!r}"
-        )
-    if any(ord(c) < 0x20 or c in (" ", "\t") for c in remote):
-        raise ValueError(
-            f"Fly remote path contains whitespace or control characters: {remote!r}"
-        )
-    leaf = Path(remote).name
-    if leaf in _PROTECTED_BASENAMES:
-        raise ValueError(
-            f"{leaf} is a protected agent config file — "
-            "replace it by editing the yaml directly, not via push"
-        )
-
-
-def _confined_workspace_path(workspace: Path, rel_path: str) -> Path:
-    """Resolve `rel_path` against `workspace` and guarantee the result
-    stays under the workspace root. Refuses absolute paths and ..-escapes."""
-    if Path(rel_path).is_absolute():
-        raise ValueError(
-            f"workspace paths must be relative to the entorno workspace, "
-            f"got absolute {rel_path!r}"
-        )
-    resolved = (workspace / rel_path).resolve()
-    ws = workspace.resolve()
-    if ws != resolved and ws not in resolved.parents:
-        raise ValueError(f"{rel_path!r} escapes workspace {ws}")
-    if resolved.name in _PROTECTED_BASENAMES:
-        raise ValueError(
-            f"{resolved.name} is a protected agent config file — "
-            "replace it by editing the yaml directly, not via push"
-        )
-    return resolved
-
-
-def _run_fly_sftp(command: str, app: str, *paths: str, timeout: int = 180) -> None:
-    """Run a single sftp command via `fly ssh sftp shell -a APP` by piping
-    the command on stdin. Raises on non-zero exit."""
-    stdin_script = f"{command} {' '.join(paths)}\nexit\n"
-    try:
-        subprocess.run(
-            ["fly", "ssh", "sftp", "shell", "-a", app],
-            input=stdin_script,
-            text=True,
-            check=True,
-            capture_output=True,
-            timeout=timeout,
-        )
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            "flyctl not found on PATH — install from https://fly.io/docs/hands-on/install-flyctl/"
-        ) from e
-
-
-def _cmd_push(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(prog="mars_runtime push")
-    p.add_argument("local", help="Local file to upload")
-    p.add_argument(
-        "dest",
-        help="Destination: relative workspace path (local) or fly://<app>/<path>",
-    )
-    p.add_argument("--data-dir", dest="data_dir", help="Override $MARS_DATA_DIR")
-    args = p.parse_args(argv)
-
-    local = Path(args.local).expanduser().resolve()
-    if not local.exists():
-        print(f"source not found: {local}", file=sys.stderr)
-        return 1
-    if not local.is_file():
-        print(f"source must be a regular file: {local}", file=sys.stderr)
-        return 1
-
-    fly = _parse_fly_url(args.dest)
-    if fly:
-        app, remote = fly
-        try:
-            _validate_fly_remote(remote)
-        except ValueError as e:
-            print(str(e), file=sys.stderr)
-            return 1
-        # Reject local path too if it contains whitespace — it goes on the
-        # same SFTP command line.
-        if any(c in str(local) for c in (" ", "\t", "\n", "\r")):
-            print(
-                f"local path contains whitespace; Fly SFTP shell can't handle it safely: {local}",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            _run_fly_sftp(
-                "put", app, str(local), f"/data/workspace/{remote}",
-            )
-        except subprocess.CalledProcessError as e:
-            print(
-                f"fly sftp failed (exit {e.returncode}): {e.stderr.strip() if e.stderr else ''}",
-                file=sys.stderr,
-            )
-            return 1
-        except RuntimeError as e:
-            print(str(e), file=sys.stderr)
-            return 1
-        print(f"pushed {local} → fly://{app}/{remote}", file=sys.stderr)
-        return 0
-
-    data_dir = _data_dir(args.data_dir)
-    workspace = data_dir / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
-    try:
-        dst = _confined_workspace_path(workspace, args.dest)
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 1
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(local, dst)
-    print(f"pushed {local} → {dst}", file=sys.stderr)
-    return 0
-
-
-def _cmd_pull(argv: list[str]) -> int:
-    p = argparse.ArgumentParser(prog="mars_runtime pull")
-    p.add_argument(
-        "src",
-        help="Source: relative workspace path (local) or fly://<app>/<path>",
-    )
-    p.add_argument("local", help="Local destination path")
-    p.add_argument("--data-dir", dest="data_dir", help="Override $MARS_DATA_DIR")
-    args = p.parse_args(argv)
-
-    local = Path(args.local).expanduser().resolve()
-    if local.exists() and local.is_dir():
-        print(
-            f"local destination is a directory; pass a file path: {local}",
-            file=sys.stderr,
-        )
-        return 1
-    local.parent.mkdir(parents=True, exist_ok=True)
-
-    fly = _parse_fly_url(args.src)
-    if fly:
-        app, remote = fly
-        try:
-            _validate_fly_remote(remote)
-        except ValueError as e:
-            print(str(e), file=sys.stderr)
-            return 1
-        if any(c in str(local) for c in (" ", "\t", "\n", "\r")):
-            print(
-                f"local path contains whitespace; Fly SFTP shell can't handle it safely: {local}",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            _run_fly_sftp(
-                "get", app, f"/data/workspace/{remote}", str(local),
-            )
-        except subprocess.CalledProcessError as e:
-            print(
-                f"fly sftp failed (exit {e.returncode}): {e.stderr.strip() if e.stderr else ''}",
-                file=sys.stderr,
-            )
-            return 1
-        except RuntimeError as e:
-            print(str(e), file=sys.stderr)
-            return 1
-        print(f"pulled fly://{app}/{remote} → {local}", file=sys.stderr)
-        return 0
-
-    data_dir = _data_dir(args.data_dir)
-    workspace = data_dir / "workspace"
-    try:
-        src = _confined_workspace_path(workspace, args.src)
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 1
-    if not src.exists():
-        print(f"source not found in workspace: {src}", file=sys.stderr)
-        return 1
-    if not src.is_file():
-        print(f"source must be a regular file: {src}", file=sys.stderr)
-        return 1
-    shutil.copy2(src, local)
-    print(f"pulled {src} → {local}", file=sys.stderr)
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     argv_list = list(argv) if argv is not None else sys.argv[1:]
 
@@ -604,8 +379,8 @@ def main(argv: list[str] | None = None) -> int:
     # the yaml path (preserves the original entrypoint contract).
     if argv_list and argv_list[0] in ("push", "pull") and not Path(argv_list[0]).is_file():
         if argv_list[0] == "push":
-            return _cmd_push(argv_list[1:])
-        return _cmd_pull(argv_list[1:])
+            return _cli_files.cmd_push(argv_list[1:])
+        return _cli_files.cmd_pull(argv_list[1:])
 
     _ingest_secrets_fd()
     _harden_broker()

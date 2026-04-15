@@ -13,10 +13,10 @@ from unittest.mock import patch
 
 import pytest
 
-from mars_runtime.__main__ import (
+from mars_runtime.__main__ import main
+from mars_runtime.cli.files import (
     _confined_workspace_path,
     _parse_fly_url,
-    main,
 )
 
 
@@ -184,7 +184,7 @@ def test_push_fly_invokes_sftp(tmp_path, monkeypatch):
         calls.append({"cmd": cmd, "input": kwargs.get("input")})
         return subprocess.CompletedProcess(cmd, 0)
 
-    with patch("mars_runtime.__main__.subprocess.run", side_effect=_fake_run):
+    with patch("mars_runtime.cli.files.subprocess.run", side_effect=_fake_run):
         rc = main(["push", str(src), "fly://prod-app/remote/file.txt"])
 
     assert rc == 0
@@ -207,7 +207,7 @@ def test_pull_fly_invokes_sftp(tmp_path, monkeypatch):
         calls.append(cmd)
         return subprocess.CompletedProcess(cmd, 0)
 
-    with patch("mars_runtime.__main__.subprocess.run", side_effect=_fake_run):
+    with patch("mars_runtime.cli.files.subprocess.run", side_effect=_fake_run):
         rc = main(["pull", "fly://prod-app/reports/q3.md", str(tmp_path / "q3.md")])
 
     assert rc == 0
@@ -224,7 +224,7 @@ def test_push_fly_surfaces_exit_code(tmp_path, monkeypatch, capsys):
     def _fake_run(cmd, **kwargs):
         raise subprocess.CalledProcessError(42, cmd, stderr="unauthorized")
 
-    with patch("mars_runtime.__main__.subprocess.run", side_effect=_fake_run):
+    with patch("mars_runtime.cli.files.subprocess.run", side_effect=_fake_run):
         rc = main(["push", str(src), "fly://app/x.txt"])
 
     assert rc == 1
@@ -242,7 +242,7 @@ def test_push_fly_without_flyctl_installed(tmp_path, monkeypatch, capsys):
     def _fake_run(cmd, **kwargs):
         raise FileNotFoundError("fly not found")
 
-    with patch("mars_runtime.__main__.subprocess.run", side_effect=_fake_run):
+    with patch("mars_runtime.cli.files.subprocess.run", side_effect=_fake_run):
         rc = main(["push", str(src), "fly://app/x.txt"])
 
     assert rc == 1
@@ -312,8 +312,8 @@ def test_dispatch_preserves_yaml_named_push(tmp_path, monkeypatch):
     push_called = []
     pull_called = []
 
-    with patch("mars_runtime.__main__._cmd_push", side_effect=lambda a: push_called.append(a) or 0), \
-         patch("mars_runtime.__main__._cmd_pull", side_effect=lambda a: pull_called.append(a) or 0), \
+    with patch("mars_runtime.cli.files.cmd_push", side_effect=lambda a: push_called.append(a) or 0), \
+         patch("mars_runtime.cli.files.cmd_pull", side_effect=lambda a: pull_called.append(a) or 0), \
          patch("mars_runtime.__main__._parse_args") as parse_args, \
          patch("mars_runtime.__main__._ingest_secrets_fd"), \
          patch("mars_runtime.__main__._harden_broker"):

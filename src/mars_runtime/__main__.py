@@ -89,8 +89,11 @@ def main(argv: list[str] | None = None) -> int:
             return _cli_files.cmd_push(argv_list[1:])
         return _cli_files.cmd_pull(argv_list[1:])
 
-    broker_env.ingest_secrets_fd()
-    broker_hardening.harden_broker()
+    # Call through the __main__ wrappers (not the broker modules directly)
+    # so tests that patch `mars_runtime.__main__._ingest_secrets_fd` /
+    # `mars_runtime.__main__._harden_broker` still intercept startup.
+    _ingest_secrets_fd()
+    _harden_broker()
 
     args = _parse_args(argv_list)
 

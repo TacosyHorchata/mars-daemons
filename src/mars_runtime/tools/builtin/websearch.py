@@ -13,7 +13,8 @@ from urllib.parse import unquote
 
 import httpx
 
-from . import Tool, ToolOutput, register
+from ..base import Tool, ToolOutput
+from ..registry import register
 
 _RESULT_RE = re.compile(
     r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?'

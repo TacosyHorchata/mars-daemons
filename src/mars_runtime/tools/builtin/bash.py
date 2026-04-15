@@ -20,7 +20,8 @@ import re
 import subprocess
 from typing import Any
 
-from . import Tool, ToolOutput, register
+from ..base import Tool, ToolOutput
+from ..registry import register
 
 _ECHO_EXPAND_RE = re.compile(r"\becho\s+\$")
 _DENY_COMMANDS: frozenset[str] = frozenset({"env", "printenv"})

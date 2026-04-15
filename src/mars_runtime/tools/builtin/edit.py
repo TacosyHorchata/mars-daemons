@@ -13,7 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import Tool, ToolOutput, register
+from ..base import Tool, ToolOutput
+from ..registry import register
 
 PROTECTED_BASENAMES: tuple[str, ...] = ("CLAUDE.md", "AGENTS.md", "agent.yaml")
 

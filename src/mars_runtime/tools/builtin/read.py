@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import Tool, ToolOutput, register
+from ..base import Tool, ToolOutput
+from ..registry import register
 
 
 def _read(input_: dict[str, Any]) -> ToolOutput:

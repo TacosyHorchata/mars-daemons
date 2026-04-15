@@ -48,7 +48,7 @@ def test_new_session_creates_snapshot_and_commits(yaml_and_prompt, tmp_path, cap
     monkeypatch.setenv("MARS_DATA_DIR", str(data_dir))
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("hi\n"))
 
-    with patch("mars_runtime.__main__.llm_client.get", return_value=_StubLLM()):
+    with patch("mars_runtime.cli.run.llm_client.get", return_value=_StubLLM()):
         rc = cli.main([str(yaml_and_prompt)])
 
     assert rc == 0
@@ -65,7 +65,7 @@ def test_list_shows_recent_sessions(yaml_and_prompt, tmp_path, capsys, monkeypat
     monkeypatch.setenv("MARS_DATA_DIR", str(data_dir))
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("hi\n"))
 
-    with patch("mars_runtime.__main__.llm_client.get", return_value=_StubLLM()):
+    with patch("mars_runtime.cli.run.llm_client.get", return_value=_StubLLM()):
         cli.main([str(yaml_and_prompt)])
 
     capsys.readouterr()  # drain first session's events
@@ -85,7 +85,7 @@ def test_resume_continues_prior_messages(yaml_and_prompt, tmp_path, capsys, monk
 
     # Turn 1.
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("first\n"))
-    with patch("mars_runtime.__main__.llm_client.get", return_value=_StubLLM("reply1")):
+    with patch("mars_runtime.cli.run.llm_client.get", return_value=_StubLLM("reply1")):
         cli.main([str(yaml_and_prompt)])
 
     sessions = list((data_dir / "sessions").glob("sess_*.json"))
@@ -94,7 +94,7 @@ def test_resume_continues_prior_messages(yaml_and_prompt, tmp_path, capsys, monk
 
     # Turn 2 via --resume.
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("second\n"))
-    with patch("mars_runtime.__main__.llm_client.get", return_value=_StubLLM("reply2")):
+    with patch("mars_runtime.cli.run.llm_client.get", return_value=_StubLLM("reply2")):
         rc = cli.main(["--resume", session_id])
     assert rc == 0
 

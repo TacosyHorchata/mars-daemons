@@ -314,7 +314,7 @@ def test_dispatch_preserves_yaml_named_push(tmp_path, monkeypatch):
 
     with patch("mars_runtime.cli.files.cmd_push", side_effect=lambda a: push_called.append(a) or 0), \
          patch("mars_runtime.cli.files.cmd_pull", side_effect=lambda a: pull_called.append(a) or 0), \
-         patch("mars_runtime.__main__._parse_args") as parse_args, \
+         patch("mars_runtime.cli.run._parse_args") as parse_args, \
          patch("mars_runtime.__main__._ingest_secrets_fd"), \
          patch("mars_runtime.__main__._harden_broker"):
         parse_args.return_value = type("X", (), {"list_sessions": True, "resume": None, "yaml_path": None, "data_dir": None})()

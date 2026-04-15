@@ -1,4 +1,4 @@
-"""Entry point — dispatches to CLI subcommands and the broker flow.
+"""mars-runtime entry point — thin dispatcher.
 
 Session usage:
   python -m mars_runtime <agent.yaml>          # start a new session
@@ -9,67 +9,37 @@ File transfer (host ↔ sandbox, USER only — the agent has no access):
   python -m mars_runtime push <local> <dest>
   python -m mars_runtime pull <src>   <local>
 
-Architecture (post-Phase-1b):
+Architecture map:
 
-  __main__.py               thin dispatcher — routes push/pull to cli.files,
-                            else runs the broker flow below.
-
-  broker/
-    env.py                  secret ingest + worker env scrub
-    hardening.py            PR_SET_DUMPABLE + RLIMIT_CORE
-    process.py              worker spawn + stdin pump + RPC forward
-
+  __main__.py            thin dispatcher (this file)
   cli/
-    files.py                push / pull
+    files.py             host-side push/pull
+    run.py               session lifecycle (parse, load, broker spawn)
+  broker/                credentialed process: env, hardening, RPC forward
+  worker/                sandboxed agent-loop process, no credentials
+  runtime/               agent_loop — the tool-use turn loop
+  storage/               session snapshots + git workspace
+  providers/             LLM SDK wrappers (Anthropic, OpenAI, Azure, Gemini)
+  tools/                 base + registry + builtin/
+  api.py                 stable embedding surface for library consumers
 
-The broker flow here still owns argparse + config/session loading; a
-follow-up phase will lift those into `cli/run.py` per the architecture
-plan. This commit is structural only — zero behavior change.
+For library embedding, import `mars_runtime.api` — not this module.
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 import sys
-import threading
 from pathlib import Path
 
-from pydantic import ValidationError
-
-from . import providers as llm_client
-from .storage import sessions as session_store
-from ._paths import data_dir as _data_dir
 from .broker import env as broker_env
 from .broker import hardening as broker_hardening
-from .broker import process as broker_process
 from .cli import files as _cli_files
-from .schema import AgentConfig
-from .storage.sessions import InvalidSessionId
-
-
-def _parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="mars_runtime")
-    group = p.add_mutually_exclusive_group(required=True)
-    group.add_argument("yaml_path", nargs="?", help="Path to agent.yaml (starts a new session)")
-    group.add_argument("--resume", metavar="SESSION_ID", help="Resume an existing session")
-    group.add_argument("--list", action="store_true", dest="list_sessions", help="List recent sessions as JSON lines")
-    p.add_argument("--data-dir", dest="data_dir", help="Override $MARS_DATA_DIR")
-    return p.parse_args(argv)
-
-
-def _resolve_system_prompt(config: AgentConfig, yaml_path: Path) -> AgentConfig:
-    """Resolve system_prompt_path relative to the yaml's own directory."""
-    sp = Path(config.system_prompt_path)
-    if not sp.is_absolute():
-        sp = (yaml_path.parent / sp).resolve()
-    return config.model_copy(update={"system_prompt_path": str(sp)})
+from .cli import run as _cli_run
 
 
 def _ingest_secrets_fd() -> None:
-    """Legacy alias — see `broker.env.ingest_secrets_fd`. Kept callable via
-    the __main__ module so existing tests patching `mars_runtime.__main__.
-    _ingest_secrets_fd` don't break."""
+    """Legacy alias — see `broker.env.ingest_secrets_fd`. Kept so tests
+    that patch `mars_runtime.__main__._ingest_secrets_fd` still work."""
     broker_env.ingest_secrets_fd()
 
 
@@ -90,86 +60,14 @@ def main(argv: list[str] | None = None) -> int:
             return _cli_files.cmd_push(argv_list[1:])
         return _cli_files.cmd_pull(argv_list[1:])
 
-    # Call through the __main__ wrappers (not the broker modules directly)
-    # so tests that patch `mars_runtime.__main__._ingest_secrets_fd` /
-    # `mars_runtime.__main__._harden_broker` still intercept startup.
-    _ingest_secrets_fd()
-    _harden_broker()
-
-    args = _parse_args(argv_list)
-
-    data_dir = _data_dir(args.data_dir)
-    workspace_path = data_dir / "workspace"
-    sessions_dir = data_dir / "sessions"
-
-    if args.list_sessions:
-        for entry in session_store.list_recent(sessions_dir):
-            print(json.dumps(entry), flush=True)
-        return 0
-
-    workspace_path.mkdir(parents=True, exist_ok=True)
-    sessions_dir.mkdir(parents=True, exist_ok=True)
-
-    if args.resume:
-        try:
-            data = session_store.load(sessions_dir, args.resume)
-        except InvalidSessionId as e:
-            print(f"invalid session id: {e}", file=sys.stderr)
-            return 2
-        except FileNotFoundError:
-            print(f"session not found: {args.resume}", file=sys.stderr)
-            return 1
-        except json.JSONDecodeError as e:
-            print(f"session file is corrupt: {e}", file=sys.stderr)
-            return 1
-        try:
-            config = AgentConfig(**data["agent_config"])
-        except (KeyError, TypeError, ValidationError) as e:
-            print(f"session has invalid agent_config: {e}", file=sys.stderr)
-            return 1
-        session_id = args.resume
-        start_messages = data.get("messages", [])
-        if not session_store._is_valid_messages_shape(start_messages):
-            print(
-                "session has malformed messages array (expected list of "
-                "{role, content: list} dicts)",
-                file=sys.stderr,
-            )
-            return 1
-    else:
-        yaml_path = Path(args.yaml_path).resolve()
-        config = AgentConfig.from_yaml_file(yaml_path)
-        config = _resolve_system_prompt(config, yaml_path)
-        session_id = session_store.new_id()
-        start_messages = None
-
-    # Broker owns the LLM client — and therefore the API key. The SDK
-    # captures the key into client state at construction. It never
-    # enters the worker process.
-    llm_client.load_all()
-    provider_name = config.provider or llm_client.infer_provider(config.model)
-    llm = llm_client.get(provider_name)
-
-    worker = broker_process.spawn_worker(config, session_id, data_dir, start_messages)
-
-    input_pump = threading.Thread(
-        target=broker_process.pump_user_input, args=(worker,), daemon=True
+    # Session flow. Test hooks: the legacy __main__ names _ingest_secrets_fd
+    # and _harden_broker are injected into cli.run.main so tests patching
+    # them still intercept startup.
+    return _cli_run.main(
+        argv_list,
+        ingest_secrets_fd=_ingest_secrets_fd,
+        harden_broker=_harden_broker,
     )
-    input_pump.start()
-
-    try:
-        broker_process.pump_worker_output(worker, llm)
-    except KeyboardInterrupt:
-        worker.terminate()
-        return 130
-    finally:
-        if worker.stdin and not worker.stdin.closed:
-            try:
-                worker.stdin.close()
-            except BrokenPipeError:
-                pass
-
-    return worker.wait()
 
 
 if __name__ == "__main__":

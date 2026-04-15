@@ -1,8 +1,8 @@
 """Provider-neutral LLM client protocol.
 
-The `LLMClient` Protocol is the only interface `agent.py` knows. Every
-provider implementation (AnthropicClient, AzureOpenAIClient, ...) speaks
-this shape. Adding a provider = one new file + `register()` call.
+The `LLMClient` Protocol is the only interface `runtime.agent_loop`
+knows. Every provider implementation (AnthropicClient, AzureOpenAIClient,
+...) speaks this shape. Adding a provider = one new file + `register()` call.
 
 Message format is Anthropic's content-block shape (text + tool_use +
 tool_result). This is the canonical format in memory and on disk
@@ -212,7 +212,7 @@ def infer_provider(model: str) -> str:
 def load_all() -> None:
     """Import every provider module in this package so each self-registers.
 
-    Drop-a-file extensibility: add `llm_client/newprovider.py` with a
+    Drop-a-file extensibility: add `providers/newprovider.py` with a
     top-level `register(...)` call and it shows up. Files starting with
     underscore and `base.py` itself are skipped.
 

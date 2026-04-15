@@ -85,9 +85,10 @@ def _install_event_forwarder(writer: _RPCWriter) -> None:
         }
         writer.send({"rpc": "event", "event": event})
 
-    # Monkey-patch at module level. agent.py imports `emit` via
-    # `from .events import emit`, which binds to the original function
-    # reference — so also replace the reference agent.py uses.
+    # Monkey-patch at module level. runtime/agent_loop.py imports `emit`
+    # via `from ..events import emit`, which binds to the original
+    # function reference — so also replace the reference the agent loop
+    # module uses.
     events.emit = _emit_via_rpc  # type: ignore[assignment]
     from ..runtime import agent_loop as _agent_mod
     _agent_mod.emit = _emit_via_rpc  # type: ignore[assignment]

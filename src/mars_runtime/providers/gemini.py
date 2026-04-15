@@ -19,7 +19,7 @@ class GeminiClient:
         raise NotImplementedError(
             "Gemini provider is not implemented yet. "
             "Use `provider: anthropic` or `provider: azure_openai` in agent.yaml, "
-            "or add the implementation in src/mars_runtime/llm_client/gemini.py."
+            "or add the implementation in src/mars_runtime/providers/gemini.py."
         )
 
     def chat(  # pragma: no cover - unreachable

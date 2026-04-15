@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from mars_runtime.__main__ import _build_worker_env
+from mars_runtime.broker.env import build_worker_env as _build_worker_env
 from mars_runtime.schema import AgentConfig
 
 
@@ -138,10 +138,11 @@ def test_worker_does_not_inherit_parent_secrets_directly(tmp_path, monkeypatch):
 
 def test_broker_stdin_lock_exists():
     """Concurrent writes to worker.stdin must serialize. Regression guard:
-    codex round 5 flagged unsynchronized _send_to_worker as a framing race."""
-    import mars_runtime.__main__ as m
+    codex round 5 flagged unsynchronized send_to_worker as a framing race."""
+    from mars_runtime.broker import process
     import threading as _t
-    assert isinstance(m._worker_stdin_lock, _t.Lock().__class__) or m._worker_stdin_lock.__class__.__name__ == "lock"
+    assert isinstance(process._worker_stdin_lock, _t.Lock().__class__) \
+        or process._worker_stdin_lock.__class__.__name__ == "lock"
 
 
 def test_broker_disconnect_wakes_pending_chat():
@@ -221,7 +222,7 @@ def test_chat_error_does_not_forward_sdk_message_verbatim(monkeypatch, capsys):
     """SDK exceptions can embed api_key; broker forwards only exception type."""
     import io as _io
     import json as _json
-    import mars_runtime.__main__ as m
+    from mars_runtime.broker import process
 
     class _PoisonedLLM:
         def chat(self, **_):
@@ -236,8 +237,6 @@ def test_chat_error_does_not_forward_sdk_message_verbatim(monkeypatch, capsys):
             )
             yield  # unreachable, makes this a generator
 
-    # Simplest fake worker: stdout yields one chat_request, then EOF.
-    # stdin is a writable sink the test inspects.
     class _FakeWorker:
         def __init__(self):
             self.stdout = iter([
@@ -250,7 +249,7 @@ def test_chat_error_does_not_forward_sdk_message_verbatim(monkeypatch, capsys):
             self.stdin = _io.StringIO()
 
     fake_worker = _FakeWorker()
-    m._pump_worker_output(fake_worker, _PoisonedLLM())
+    process.pump_worker_output(fake_worker, _PoisonedLLM())
 
     forwarded = fake_worker.stdin.getvalue()
     assert "sk-ant-this-should-not-leak" not in forwarded

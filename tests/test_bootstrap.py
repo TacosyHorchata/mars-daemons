@@ -22,10 +22,10 @@ from mars_runtime import _bootstrap
 
 def test_provider_secret_vars_match_main_strip_list():
     """Bootstrap's strip list must stay in sync with the broker's."""
-    from mars_runtime.__main__ import _ALWAYS_STRIP_EXACT
+    from mars_runtime.broker.env import ALWAYS_STRIP_EXACT
     # Bootstrap can be a superset (e.g., listing future provider keys),
     # but it must cover everything the broker also strips.
-    assert _ALWAYS_STRIP_EXACT <= _bootstrap.PROVIDER_SECRET_VARS
+    assert ALWAYS_STRIP_EXACT <= _bootstrap.PROVIDER_SECRET_VARS
 
 
 def test_bootstrap_is_noop_without_secrets(monkeypatch, tmp_path):

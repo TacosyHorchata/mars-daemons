@@ -25,7 +25,7 @@ from .._paths import data_dir as _data_dir
 from ..broker import env as broker_env
 from ..broker import hardening as broker_hardening
 from ..broker import process as broker_process
-from ..schema import AgentConfig
+from ..config import AgentConfig
 from ..storage import sessions as session_store
 from ..storage.sessions import InvalidSessionId
 

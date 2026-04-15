@@ -16,7 +16,7 @@ from typing import TextIO
 from ..storage import sessions as session_store, workspace
 from ..events import emit
 from ..providers import LLMClient, Message
-from ..schema import AgentConfig
+from ..config import AgentConfig
 from ..tools import ToolRegistry
 
 

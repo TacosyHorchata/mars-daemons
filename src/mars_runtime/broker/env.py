@@ -20,7 +20,7 @@ import json
 import os
 from pathlib import Path
 
-from ..schema import AgentConfig
+from ..config import AgentConfig
 
 
 # LLM-provider env vars that must NEVER reach the worker, even if the

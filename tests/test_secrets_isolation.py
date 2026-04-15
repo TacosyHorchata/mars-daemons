@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from mars_runtime.broker.env import build_worker_env as _build_worker_env
-from mars_runtime.schema import AgentConfig
+from mars_runtime.config import AgentConfig
 
 
 @pytest.fixture

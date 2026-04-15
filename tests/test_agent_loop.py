@@ -10,7 +10,7 @@ import pytest
 
 from mars_runtime.runtime.agent_loop import run
 from mars_runtime.providers import Response, ToolCall, fallback_chat_stream
-from mars_runtime.schema import AgentConfig
+from mars_runtime.config import AgentConfig
 from mars_runtime.tools import ToolRegistry, load_all
 
 load_all()

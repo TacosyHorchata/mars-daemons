@@ -17,7 +17,7 @@ from pathlib import Path
 
 from ..runtime.agent_loop import run
 from ..providers import Message
-from ..schema import AgentConfig
+from ..config import AgentConfig
 from ..tools import ToolRegistry, load_all
 from .broker_client import _BrokerLLMClient
 from .input import _user_input_stream

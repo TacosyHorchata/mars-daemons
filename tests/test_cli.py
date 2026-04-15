@@ -145,7 +145,7 @@ def test_git_subprocess_error_is_caught(yaml_and_prompt, tmp_path, capsys, monke
     data_dir = tmp_path / "data"
     (data_dir / "workspace").mkdir(parents=True)
     (data_dir / "sessions").mkdir(parents=True)
-    from mars_runtime.schema import AgentConfig
+    from mars_runtime.config import AgentConfig
     config = AgentConfig.from_yaml_file(yaml_and_prompt)
     config = config.model_copy(update={"system_prompt_path": str((yaml_and_prompt.parent / "CLAUDE.md").resolve())})
 

@@ -38,7 +38,7 @@ from .providers import (
     ToolCall,
     ToolSpec,
 )
-from .schema import AgentConfig
+from .config import AgentConfig
 from .storage import sessions as _sessions
 from .storage.sessions import InvalidSessionId
 from .worker.broker_client import BrokerDisconnected

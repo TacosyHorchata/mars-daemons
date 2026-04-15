@@ -93,7 +93,7 @@ def build_worker_env(config: AgentConfig) -> dict[str, str]:
     declared them.
 
     PYTHONPATH is forwarded (and augmented with this package's src root)
-    so `python -m mars_runtime._worker` resolves even when mars-runtime
+    so `python -m mars_runtime.worker` resolves even when mars-runtime
     is not installed site-wide (editable dev, pytest, etc.).
     """
     allowlist = {"PATH", "HOME", "LANG", "LC_ALL", "TZ"}

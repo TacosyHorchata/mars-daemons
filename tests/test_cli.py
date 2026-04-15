@@ -139,7 +139,7 @@ def test_git_subprocess_error_is_caught(yaml_and_prompt, tmp_path, capsys, monke
     import io
     import json
     import subprocess
-    from mars_runtime import _worker
+    from mars_runtime import worker as _worker
     from mars_runtime.llm_client import Response
 
     data_dir = tmp_path / "data"

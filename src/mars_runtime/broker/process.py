@@ -3,7 +3,7 @@
 Once the broker has constructed the LLM client and scrubbed the worker
 env, this module:
 
-1. `spawn_worker()` — Popen's `python -m mars_runtime._worker` with
+1. `spawn_worker()` — Popen's `python -m mars_runtime.worker` with
    clean env, stdin/stdout pipes, and the resume-transcript handed on
    a temp-file pointer if present.
 2. `pump_user_input()` — daemon thread that forwards the broker's
@@ -62,7 +62,7 @@ def spawn_worker(
     args = [
         sys.executable,
         "-m",
-        "mars_runtime._worker",
+        "mars_runtime.worker",
         "--agent-json",
         json.dumps(config.model_dump()),
         "--session-id",

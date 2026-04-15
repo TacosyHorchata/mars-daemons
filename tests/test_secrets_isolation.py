@@ -147,7 +147,8 @@ def test_broker_stdin_lock_exists():
 
 def test_broker_disconnect_wakes_pending_chat():
     """fail_all_pending must unblock every in-flight chat() with BrokerDisconnected."""
-    from mars_runtime._worker import _BrokerLLMClient, _RPCWriter, BrokerDisconnected
+    from mars_runtime.worker.broker_client import _BrokerLLMClient, BrokerDisconnected
+    from mars_runtime.worker.rpc import _RPCWriter
     import io
     import threading
 
@@ -183,7 +184,8 @@ def test_broker_disconnect_wakes_pending_chat():
 
 def test_chat_after_disconnect_raises_immediately():
     """New chat() calls after disconnection should NOT block."""
-    from mars_runtime._worker import _BrokerLLMClient, _RPCWriter, BrokerDisconnected
+    from mars_runtime.worker.broker_client import _BrokerLLMClient, BrokerDisconnected
+    from mars_runtime.worker.rpc import _RPCWriter
     import io
     import threading
 
@@ -260,7 +262,8 @@ def test_chat_error_does_not_forward_sdk_message_verbatim(monkeypatch, capsys):
 def test_pre_delivered_response_survives_disconnect():
     """A chat_response that landed BEFORE chat() was called must be
     consumed even if the pipe then closed (fail_all_pending runs)."""
-    from mars_runtime._worker import _BrokerLLMClient, _RPCWriter
+    from mars_runtime.worker.broker_client import _BrokerLLMClient
+    from mars_runtime.worker.rpc import _RPCWriter
     import io
     import threading
 

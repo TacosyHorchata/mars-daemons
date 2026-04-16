@@ -30,11 +30,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--start-messages-file", default=None)
+    parser.add_argument("--workspace-path", default=None)
     args = parser.parse_args(argv)
 
     config = AgentConfig(**json.loads(args.agent_json))
     data_dir = Path(args.data_dir)
-    workspace_path = data_dir / "workspace"
+    workspace_path = Path(args.workspace_path) if args.workspace_path else data_dir / "workspace"
     sessions_dir = data_dir / "sessions"
 
     start_messages: list[Message] | None = None

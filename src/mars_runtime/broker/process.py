@@ -56,6 +56,10 @@ def spawn_worker(
     session_id: str,
     data_dir: Path,
     start_messages: list | None,
+    *,
+    workspace_path: Path | None = None,
+    run_as_uid: int | None = None,
+    run_as_gid: int | None = None,
 ) -> subprocess.Popen:
     env = build_worker_env(config)
 
@@ -71,13 +75,39 @@ def spawn_worker(
         str(data_dir),
     ]
 
+    if workspace_path is not None:
+        args.extend(["--workspace-path", str(workspace_path)])
+
     if start_messages is not None:
         # Pass via temp file — argv has size limits and we don't want
         # the entire transcript visible in `ps`.
         fd, path = tempfile.mkstemp(prefix="mars-resume-", suffix=".json", dir=str(data_dir))
         os.close(fd)
         Path(path).write_text(json.dumps(start_messages), encoding="utf-8")
+        if run_as_uid is not None:
+            try:
+                os.chown(path, run_as_uid, run_as_gid if run_as_gid is not None else -1)
+            except OSError:
+                pass
         args.extend(["--start-messages-file", path])
+
+    preexec_fn = None
+    if run_as_uid is not None or run_as_gid is not None:
+        uid_for_groups = run_as_uid
+
+        def _drop_privileges() -> None:
+            # setgid MUST happen before setuid. initgroups must succeed — if
+            # the passwd entry is missing, the worker could keep inherited
+            # supplementary groups (e.g., root's), weakening isolation. Fail
+            # loud so the caller sees a non-zero child exit immediately.
+            if run_as_gid is not None:
+                os.setgid(run_as_gid)
+                if uid_for_groups is not None:
+                    os.initgroups(f"mars_u{uid_for_groups}", run_as_gid)
+            if run_as_uid is not None:
+                os.setuid(run_as_uid)
+
+        preexec_fn = _drop_privileges
 
     return subprocess.Popen(
         args,
@@ -90,6 +120,7 @@ def spawn_worker(
         stderr=None,
         bufsize=1,
         text=True,
+        preexec_fn=preexec_fn,
     )
 
 

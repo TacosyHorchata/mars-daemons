@@ -10,7 +10,7 @@ Inspired by [The Emperor Has No Clothes](https://www.mihaileric.com/The-Emperor-
 - **Provider-neutral `llm_client`** — a `Protocol` with one concrete `AnthropicClient`. Drop in OpenAI/Azure/etc. without touching the loop.
 - **7 tools** — `read`, `list`, `edit`, `bash`, `grep`, `glob`, `websearch`. Self-register. Allowlist per agent.
 - **Persistent sandbox** — Docker volume + git repo per entorno. World state is git. Dialogue state is one JSON file per session. Supervisor writes both — agent can't forge or skip them.
-- **No FastAPI, no control plane, no S3 memory sync** — memory is the filesystem.
+- **CLI-first runtime with an optional local HTTP daemon** — memory is the filesystem.
 
 ## The model
 
@@ -81,6 +81,36 @@ python -m mars_runtime --resume <id>    # resume a session (no yaml needed)
 python -m mars_runtime --list           # list recent sessions as JSON lines
 python -m mars_runtime --data-dir DIR ... # override $MARS_DATA_DIR
 ```
+
+## HTTP daemon
+
+The daemon is a localhost HTTP adapter over the same runtime. It is single-tenant by design: one fixed `agent.yaml`, bearer-file auth, session snapshots under `MARS_DATA_DIR/sessions`, and a SQLite `turns.db` for active-turn bookkeeping.
+
+```bash
+export ANTHROPIC_API_KEY=sk-...
+export MARS_DATA_DIR=./.mars-data
+export MARS_AUTH_TOKEN_FILE=/tmp/mars-daemon-token
+printf 'secret-token\n' > "$MARS_AUTH_TOKEN_FILE"
+chmod 600 "$MARS_AUTH_TOKEN_FILE"
+
+uv run python -m mars_runtime.daemon ./agent.yaml
+
+curl -s \
+  -H "Authorization: Bearer $(cat "$MARS_AUTH_TOKEN_FILE")" \
+  -X POST http://127.0.0.1:8080/v1/sessions
+
+curl -N \
+  -H "Authorization: Bearer $(cat "$MARS_AUTH_TOKEN_FILE")" \
+  -H "Content-Type: application/json" \
+  -X POST http://127.0.0.1:8080/v1/sessions/$SID/messages \
+  -d '{"turn_id":"8d3a7c14-2601-4ea6-90db-bfe93f10bb5c","text":"hola"}'
+```
+
+HTTP auth is a network gate only; it does not change the tool trust model already documented below. An authenticated caller gets the same tool/RCE surface as the configured CLI agent.
+
+If the SSE stream drops before a terminal event, that turn's streamed output is lost; the next turn works normally.
+
+If the daemon crashes mid-turn, the in-flight row is recovered as `failed` in SQLite with `error='daemon_restart'`; the client receives no terminal event and must rely on its own timeout/retry behavior.
 
 ## agent.yaml schema
 

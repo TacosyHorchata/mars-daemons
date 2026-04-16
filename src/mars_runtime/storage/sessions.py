@@ -55,6 +55,10 @@ def save(
     messages: list[dict],
     *,
     created_at: int | None = None,
+    owner_subject: str | None = None,
+    role: str | None = None,
+    assistant_id: str | None = None,
+    workspace_path: str | None = None,
 ) -> None:
     """Atomically write the session snapshot.
 
@@ -64,22 +68,40 @@ def save(
     sessions_dir.mkdir(parents=True, exist_ok=True)
     final = _path_for(sessions_dir, session_id)
 
+    existing_data: dict[str, Any] | None = None
+    if final.exists():
+        existing_data = json.loads(final.read_text(encoding="utf-8"))
+
     if created_at is None:
-        if final.exists():
-            # Preserve the original created_at. If the existing file is
-            # corrupt, surface it — silently clobbering hides bugs.
-            existing = json.loads(final.read_text(encoding="utf-8"))
-            created_at = int(existing["created_at"])
+        if existing_data is not None:
+            created_at = int(existing_data["created_at"])
         else:
             created_at = int(time.time())
 
-    payload = {
+    if owner_subject is None and existing_data is not None:
+        owner_subject = existing_data.get("owner_subject")
+    if role is None and existing_data is not None:
+        role = existing_data.get("role")
+    if assistant_id is None and existing_data is not None:
+        assistant_id = existing_data.get("assistant_id")
+    if workspace_path is None and existing_data is not None:
+        workspace_path = existing_data.get("workspace_path")
+
+    payload: dict[str, Any] = {
         "id": session_id,
         "agent_name": agent_name,
         "agent_config": agent_config,
         "created_at": created_at,
         "messages": messages,
     }
+    if owner_subject is not None:
+        payload["owner_subject"] = owner_subject
+    if role is not None:
+        payload["role"] = role
+    if assistant_id is not None:
+        payload["assistant_id"] = assistant_id
+    if workspace_path is not None:
+        payload["workspace_path"] = workspace_path
 
     # Unique tmp filename per-call avoids clobbering if two writers ever
     # collide on the same session (single-writer is the v0.2 contract, but

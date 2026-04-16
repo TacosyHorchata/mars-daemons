@@ -36,3 +36,19 @@ fly.toml.backup
 /workspace/
 .codex-reviews/
 .claude/
+.codex-reviews
+
+.mars-data/
+agent.yaml
+*.token
+MEMORY.md
+
+# internal planning docs (not shipped)
+DAEMON_*.md
+MARS_CORE_ROADMAP.md
+
+# npm client SDK build artifacts
+clients/typescript/node_modules/
+clients/typescript/dist/
+clients/typescript/*.tsbuildinfo
+clients/typescript/package-lock.json

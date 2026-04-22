@@ -1,7 +1,7 @@
 [project]
 name = "mars-daemons"
-version = "0.3.0"
-description = "Enterprise claude code — self-hosted agent runtime with persistent sandbox, HTTP daemon, per-user Unix isolation, and resumable sessions."
+version = "0.4.0"
+description = "Standalone agents backend built from the exportable agents_v2 core."
 requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -35,9 +35,9 @@ classifiers = [
 dependencies = [
     "anthropic>=0.40",
     "openai>=1.0",
+    "litellm>=1.74",
     "httpx>=0.28",
     "pydantic>=2.6",
-    "pyyaml>=6.0",
     "fastapi>=0.115",
     "uvicorn>=0.34",
     "sse-starlette>=2.1",

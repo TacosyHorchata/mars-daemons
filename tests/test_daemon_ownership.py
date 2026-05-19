@@ -105,6 +105,26 @@ def test_foreign_owner_messages_gets_404(tmp_path: Path) -> None:
     assert resp.status_code == 404
 
 
+def test_list_sessions_hides_foreign_owner_sessions(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    sid_a = client.post("/v1/sessions", headers=_auth("user_A")).json()["session_id"]
+    client.post("/v1/sessions", headers=_auth("user_B")).json()["session_id"]
+
+    resp = client.get("/v1/sessions", headers=_auth("user_A"))
+
+    assert resp.status_code == 200
+    assert [item["session_id"] for item in resp.json()["sessions"]] == [sid_a]
+
+
+def test_foreign_owner_transcript_gets_404(tmp_path: Path) -> None:
+    client = _make_client(tmp_path)
+    sid = client.post("/v1/sessions", headers=_auth("user_A")).json()["session_id"]
+
+    resp = client.get(f"/v1/sessions/{sid}/transcript", headers=_auth("user_B"))
+
+    assert resp.status_code == 404
+
+
 # --- 1.1c metadata GET ---
 
 

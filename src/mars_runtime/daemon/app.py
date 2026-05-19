@@ -95,6 +95,48 @@ def _check_session_access(
     return data
 
 
+def _message_text(message: object) -> str:
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    return "\n".join(p for p in parts if p).strip()
+
+
+def _session_preview(messages: object) -> str | None:
+    if not isinstance(messages, list):
+        return None
+    for message in reversed(messages):
+        text = _message_text(message)
+        if text:
+            return text[:240]
+    return None
+
+
+def _public_messages(messages: object) -> list[dict[str, object]]:
+    if not isinstance(messages, list):
+        return []
+    out: list[dict[str, object]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        if role not in {"user", "assistant", "system"}:
+            continue
+        text = _message_text(message)
+        if not text:
+            continue
+        out.append({"role": role, "text": text})
+    return out
+
+
 def _resolve_user_workspace(data_dir: Path, session: dict[str, object]) -> Path:
     rel = session.get("workspace_path")
     if not (isinstance(rel, str) and rel):
@@ -259,6 +301,39 @@ def create_app(
         )
         return {"session_id": sid, "created_at": created_at}
 
+    @app.get("/v1/sessions", dependencies=[Depends(require_bearer)])
+    def list_sessions(
+        request: Request,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> dict[str, object]:
+        sd = _sessions_dir(request)
+        items: list[dict[str, object]] = []
+        for item in sessions.list_recent(sd, limit=limit):
+            session_id = item.get("id")
+            if not isinstance(session_id, str):
+                continue
+            try:
+                data = sessions.load(sd, session_id)
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                continue
+            session_owner = data.get("owner_subject")
+            if session_owner is not None and request.state.sub != session_owner:
+                continue
+            assistant_id = data.get("assistant_id") or data.get("agent_name")
+            public_item: dict[str, object] = {
+                "session_id": session_id,
+                "created_at": item.get("created_at"),
+                "updated_at": item.get("updated_at"),
+                "turn_count": item.get("turn_count"),
+            }
+            if isinstance(assistant_id, str):
+                public_item["assistant_id"] = assistant_id
+            preview = _session_preview(data.get("messages"))
+            if preview:
+                public_item["preview"] = preview
+            items.append(public_item)
+        return {"sessions": items}
+
     @app.get("/v1/sessions/{session_id}", dependencies=[Depends(require_bearer)])
     def get_session(request: Request, session_id: str) -> dict[str, object]:
         _require_session_id(session_id)
@@ -280,6 +355,24 @@ def create_app(
         }
         assistant_id = data.get("assistant_id") or data.get("agent_name")
         if assistant_id is not None:
+            response["assistant_id"] = assistant_id
+        return response
+
+    @app.get("/v1/sessions/{session_id}/transcript", dependencies=[Depends(require_bearer)])
+    def get_session_transcript(request: Request, session_id: str) -> dict[str, object]:
+        _require_session_id(session_id)
+        sd = _sessions_dir(request)
+        data = _check_session_access(sd, session_id, request.state.sub)
+        session_file = sd / f"{session_id}.json"
+        updated_at = int(session_file.stat().st_mtime)
+        assistant_id = data.get("assistant_id") or data.get("agent_name")
+        response: dict[str, object] = {
+            "session_id": session_id,
+            "created_at": data["created_at"],
+            "updated_at": updated_at,
+            "messages": _public_messages(data.get("messages")),
+        }
+        if isinstance(assistant_id, str):
             response["assistant_id"] = assistant_id
         return response
 

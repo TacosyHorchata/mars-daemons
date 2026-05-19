@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from mars_runtime.config import AgentConfig
 from mars_runtime.daemon import turns
 from mars_runtime.daemon.app import create_app
+from mars_runtime.storage import sessions
 
 _SESSION_ID_RE = re.compile(r"^sess_[0-9a-f]{24}$")
 
@@ -70,6 +71,46 @@ def test_get_session_returns_metadata(tmp_path: Path) -> None:
     assert body["status"] == "idle"
     assert body["turn_count"] == 0
     assert "messages" not in body
+
+
+def test_list_sessions_returns_recent_metadata(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    created = client.post("/v1/sessions", headers=_auth())
+    session_id = created.json()["session_id"]
+
+    response = client.get("/v1/sessions", headers=_auth())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sessions"][0]["session_id"] == session_id
+    assert body["sessions"][0]["assistant_id"] == "test-agent"
+    assert body["sessions"][0]["turn_count"] == 0
+
+
+def test_get_session_transcript_returns_public_messages(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    created = client.post("/v1/sessions", headers=_auth())
+    session_id = created.json()["session_id"]
+    sessions.save(
+        tmp_path / "data" / "sessions",
+        session_id,
+        "test-agent",
+        _config().model_dump(),
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": "hola"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "que tal"}]},
+        ],
+    )
+
+    response = client.get(f"/v1/sessions/{session_id}/transcript", headers=_auth())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == session_id
+    assert body["messages"] == [
+        {"role": "user", "text": "hola"},
+        {"role": "assistant", "text": "que tal"},
+    ]
 
 
 def test_get_session_bad_id_returns_404(tmp_path: Path) -> None:

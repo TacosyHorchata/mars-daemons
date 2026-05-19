@@ -93,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     sessions_dir = data_dir / "sessions"
     db_path = data_dir / "turns.db"
     sessions_dir.mkdir(parents=True, exist_ok=True)
+    isolation.setup_state_dir_permissions(sessions_dir)
     conn = turns.connect(db_path)
     try:
         turns.init_db(conn)

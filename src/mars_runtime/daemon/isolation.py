@@ -68,6 +68,25 @@ def setup_shared_permissions(shared_dir: Path) -> None:
         print(f"[daemon] setfacl failed: {exc.stderr!r}", file=sys.stderr, flush=True)
 
 
+def setup_state_dir_permissions(state_dir: Path) -> None:
+    """Allow isolated workers to update supervisor-owned state snapshots."""
+    if os.geteuid() != 0:
+        return
+    ensure_groups()
+    admin_gid = grp.getgrnam(MARS_ADMIN_GROUP).gr_gid
+    os.chown(state_dir, 0, admin_gid)
+    os.chmod(state_dir, 0o770)
+    try:
+        _run(["setfacl", "-m", f"g:{MARS_GROUP}:rwx", str(state_dir)])
+        _run(["setfacl", "-m", f"g:{MARS_ADMIN_GROUP}:rwx", str(state_dir)])
+        _run(["setfacl", "-d", "-m", f"g:{MARS_GROUP}:rwx", str(state_dir)])
+        _run(["setfacl", "-d", "-m", f"g:{MARS_ADMIN_GROUP}:rwx", str(state_dir)])
+    except FileNotFoundError:
+        print("[daemon] setfacl not available; worker session persistence may fail", file=sys.stderr, flush=True)
+    except subprocess.CalledProcessError as exc:
+        print(f"[daemon] state setfacl failed: {exc.stderr!r}", file=sys.stderr, flush=True)
+
+
 def resolve_uid(owner_subject: str) -> int:
     digest = hashlib.sha256(owner_subject.encode("utf-8")).digest()
     n = int.from_bytes(digest[:8], "big")
